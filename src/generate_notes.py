@@ -1,8 +1,8 @@
 """
 generate_notes.py — Generate structured meeting notes from a cleaned transcript.
 
-Uses the Anthropic Claude API. The output is a structured dict that maps
-directly to the Notion page properties + content blocks.
+Default provider: OpenAI (gpt-4o).
+Override at runtime with --provider anthropic (uses claude-sonnet-4-6).
 """
 
 from __future__ import annotations
@@ -12,8 +12,6 @@ import logging
 import os
 from pathlib import Path
 from typing import Optional
-
-import anthropic
 
 logger = logging.getLogger(__name__)
 
@@ -65,67 +63,130 @@ Return ONLY valid JSON with these keys and nothing else.
 """
 
 
+# ── Provider backends ─────────────────────────────────────────────────────────
+
+def _call_openai(system: str, user: str, model: str, max_tokens: int, temperature: float) -> str:
+    from openai import OpenAI
+
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise EnvironmentError(
+            "OPENAI_API_KEY is not set. Add it to your .env file."
+        )
+    client = OpenAI(api_key=api_key)
+    logger.info("Calling OpenAI (%s) to generate meeting notes ...", model)
+    response = client.chat.completions.create(
+        model=model,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user},
+        ],
+    )
+    return response.choices[0].message.content.strip()
+
+
+def _call_anthropic(system: str, user: str, model: str, max_tokens: int, temperature: float) -> str:
+    import anthropic
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise EnvironmentError(
+            "ANTHROPIC_API_KEY is not set. Add it to your .env file."
+        )
+    client = anthropic.Anthropic(api_key=api_key)
+    logger.info("Calling Anthropic (%s) to generate meeting notes ...", model)
+    message = client.messages.create(
+        model=model,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        system=system,
+        messages=[{"role": "user", "content": user}],
+    )
+    return message.content[0].text.strip()
+
+
+_PROVIDERS = {
+    "openai":    _call_openai,
+    "anthropic": _call_anthropic,
+}
+
+# Default models per provider if the config model looks like it belongs to the
+# other provider (e.g. user switches --provider without updating config.yaml)
+_DEFAULT_MODELS = {
+    "openai":    "gpt-4o",
+    "anthropic": "claude-sonnet-4-6",
+}
+
+
+def _resolve_model(provider: str, model_from_cfg: str) -> str:
+    """
+    If the config model is clearly for the *other* provider, swap in the
+    default for the requested provider instead of sending a bad model name.
+    """
+    openai_prefixes    = ("gpt-", "o1", "o3", "o4")
+    anthropic_prefixes = ("claude-",)
+
+    if provider == "openai" and model_from_cfg.startswith(anthropic_prefixes):
+        return _DEFAULT_MODELS["openai"]
+    if provider == "anthropic" and model_from_cfg.startswith(openai_prefixes):
+        return _DEFAULT_MODELS["anthropic"]
+    return model_from_cfg
+
+
 # ── Main function ─────────────────────────────────────────────────────────────
 
 def generate_notes(
     transcript_path: str | Path,
     cfg: dict,
     output_dir: Optional[str | Path] = None,
+    provider: Optional[str] = None,
 ) -> dict:
     """
-    Read the cleaned transcript at *transcript_path*, call Claude, and return
+    Read the cleaned transcript at *transcript_path*, call the LLM, and return
     a structured dict of meeting notes.
 
-    If *output_dir* is given, also saves the result as a JSON file there.
+    Args:
+        transcript_path: Path to the cleaned .txt transcript.
+        cfg:             Full config dict.
+        output_dir:      If given, saves the result as JSON here.
+        provider:        "openai" or "anthropic". Overrides config when set.
     """
     transcript_path = Path(transcript_path)
     transcript_text = transcript_path.read_text(encoding="utf-8")
 
     lcfg = cfg.get("llm", {})
-    model = lcfg.get("model", "claude-sonnet-4-6")
+    provider   = (provider or lcfg.get("provider", "openai")).lower()
+    model      = _resolve_model(provider, lcfg.get("model", _DEFAULT_MODELS[provider]))
     max_tokens = int(lcfg.get("max_tokens", 4096))
     temperature = float(lcfg.get("temperature", 0.3))
     output_lang = lcfg.get("output_language", "bilingual")
 
+    if provider not in _PROVIDERS:
+        raise ValueError(f"Unknown provider '{provider}'. Choose: {list(_PROVIDERS)}")
+
     system_prompt = _SYSTEM_MAP.get(output_lang, _SYSTEM_BILINGUAL)
-    user_message = _USER_TEMPLATE.format(transcript=transcript_text)
+    user_message  = _USER_TEMPLATE.format(transcript=transcript_text)
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise EnvironmentError(
-            "ANTHROPIC_API_KEY is not set. "
-            "Add it to your .env file or export it as an environment variable."
-        )
-
-    client = anthropic.Anthropic(api_key=api_key)
-
-    logger.info("Calling Claude (%s) to generate meeting notes ...", model)
-    message = client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_message}],
-    )
-
-    raw_response = message.content[0].text.strip()
+    raw_response = _PROVIDERS[provider](system_prompt, user_message, model, max_tokens, temperature)
 
     # Strip markdown code fences if the model wrapped the JSON
     if raw_response.startswith("```"):
-        lines = raw_response.splitlines()
         raw_response = "\n".join(
-            line for line in lines
+            line for line in raw_response.splitlines()
             if not line.startswith("```")
         ).strip()
 
     try:
         notes = json.loads(raw_response)
     except json.JSONDecodeError as exc:
-        logger.error("Claude returned non-JSON response:\n%s", raw_response)
+        logger.error("LLM returned non-JSON response:\n%s", raw_response)
         raise ValueError("LLM did not return valid JSON.") from exc
 
-    # Attach the source file name for downstream use
-    notes["_source"] = transcript_path.name
+    notes["_source"]   = transcript_path.name
+    notes["_provider"] = provider
+    notes["_model"]    = model
 
     if output_dir:
         output_dir = Path(output_dir)
@@ -150,11 +211,15 @@ if __name__ == "__main__":
     parser.add_argument("transcript", help="Path to cleaned transcript (.txt)")
     parser.add_argument("--config", default="config/config.yaml")
     parser.add_argument("--output-dir", default=None)
+    parser.add_argument(
+        "--provider", default=None, choices=["openai", "anthropic"],
+        help="LLM provider to use (overrides config). Default: openai",
+    )
     args = parser.parse_args()
 
     with open(args.config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
 
     out_dir = args.output_dir or cfg["paths"]["notes"]
-    notes = generate_notes(args.transcript, cfg, out_dir)
+    notes = generate_notes(args.transcript, cfg, out_dir, provider=args.provider)
     print(json.dumps(notes, ensure_ascii=False, indent=2))
