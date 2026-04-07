@@ -1,0 +1,24 @@
+# Environment
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# Audio & large files — keep folder structure, ignore content
+meetings/inbox/*
+meetings/transcripts/raw/*
+meetings/transcripts/clean/*
+meetings/notes/*
+!meetings/inbox/.gitkeep
+!meetings/transcripts/raw/.gitkeep
+!meetings/transcripts/clean/.gitkeep
+!meetings/notes/.gitkeep
+
+# Whisper model cache (can be several GB)
+~/.cache/huggingface/
