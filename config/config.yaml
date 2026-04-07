@@ -21,9 +21,11 @@ cleaning:
   dedup_window: 3                        # how many consecutive segments to check for near-duplicates
   dedup_similarity_threshold: 0.85       # cosine-like ratio; segments above this are merged/dropped
 
-# ─── LLM (Anthropic Claude) ───────────────────────────────────────────────────
+# ─── LLM ──────────────────────────────────────────────────────────────────────
 llm:
-  model: claude-sonnet-4-6               # model to call
+  # Default provider. Override at runtime with --provider anthropic
+  provider: openai                        # openai | anthropic
+  model: gpt-4o                           # openai: gpt-4o / gpt-4o-mini  |  anthropic: claude-sonnet-4-6
   max_tokens: 4096
   temperature: 0.3
   # Output language for the notes. Options: "en" | "zh" | "bilingual"

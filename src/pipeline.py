@@ -83,6 +83,7 @@ def process_file(
     meeting_type: str = "Online",
     project: str | None = None,
     force: bool = False,
+    provider: str | None = None,
 ) -> dict | None:
     """
     Run the full pipeline for one audio file.
@@ -117,7 +118,7 @@ def process_file(
         notes = json.loads(notes_json_path.read_text(encoding="utf-8"))
     else:
         logger.info("  [3/4] Generating meeting notes via LLM ...")
-        notes = generate_notes(clean_txt_path, cfg, paths["notes"])
+        notes = generate_notes(clean_txt_path, cfg, paths["notes"], provider=provider)
 
     # ── Step 4: Write to Notion ───────────────────────────────────────────────
     if skip_notion:
@@ -156,6 +157,7 @@ def process_inbox(
     meeting_type: str = "Online",
     project: str | None = None,
     force: bool = False,
+    provider: str | None = None,
 ) -> list[dict]:
     inbox = paths["inbox"]
     audio_files = sorted(
@@ -182,6 +184,7 @@ def process_inbox(
             meeting_type=meeting_type,
             project=project,
             force=force,
+            provider=provider,
         )
         if result:
             results.append(result)
@@ -219,6 +222,10 @@ def main() -> None:
         "--force", action="store_true",
         help="Re-run all steps even if outputs already exist."
     )
+    parser.add_argument(
+        "--provider", default=None, choices=["openai", "anthropic"],
+        help="LLM provider for note generation (overrides config). Default: openai",
+    )
     args = parser.parse_args()
 
     # Load config relative to project root (one level above src/)
@@ -244,6 +251,7 @@ def main() -> None:
             meeting_type=args.type,
             project=args.project,
             force=args.force,
+            provider=args.provider,
         )
     else:
         process_inbox(
@@ -252,6 +260,7 @@ def main() -> None:
             meeting_type=args.type,
             project=args.project,
             force=args.force,
+            provider=args.provider,
         )
 
 
