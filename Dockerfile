@@ -43,16 +43,19 @@ ENV DEBIAN_FRONTEND=noninteractive
 #                       can verify SSL certificates
 RUN apt-get update && apt-get install -y \
     python3.11 \
-    python3-pip \
+    python3.11-distutils \
     ffmpeg \
     curl \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 #   ↑ cleaning the apt cache keeps the image smaller
+#   python3.11-distutils is required for python3.11's own ensurepip / pip bootstrap
 
-# Make "python" and "pip" point to python3.11 (Ubuntu defaults to python3)
-RUN ln -sf /usr/bin/python3.11 /usr/bin/python && \
-    ln -sf /usr/bin/pip3       /usr/bin/pip
+# Bootstrap pip specifically for python3.11, then create the "python" symlink.
+# This avoids the Ubuntu split where python3-pip installs into python3.10
+# while python3.11 is a separate interpreter with no pip of its own.
+RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11
+RUN ln -sf /usr/bin/python3.11 /usr/bin/python
 
 # ----- Set the working directory ---------------------------------------------
 # All subsequent commands and the running container operate from /app.

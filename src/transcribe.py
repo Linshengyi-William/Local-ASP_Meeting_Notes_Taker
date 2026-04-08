@@ -18,16 +18,19 @@ logger = logging.getLogger(__name__)
 
 def _resolve_device_and_compute(device: str, compute_type: str) -> tuple[str, str]:
     """Pick sensible defaults when config says 'auto'."""
-    import torch
-
     if device == "auto":
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        # ctranslate2 is already installed as a faster-whisper dependency.
+        # Calling get_supported_compute_types("cuda") raises RuntimeError when
+        # no CUDA device is available — no torch required.
+        try:
+            import ctranslate2
+            ctranslate2.get_supported_compute_types("cuda")
+            device = "cuda"
+        except RuntimeError:
+            device = "cpu"
 
     if compute_type == "auto":
-        if device == "cuda":
-            compute_type = "float16"
-        else:
-            compute_type = "int8"
+        compute_type = "float16" if device == "cuda" else "int8"
 
     return device, compute_type
 

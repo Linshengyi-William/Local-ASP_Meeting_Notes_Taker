@@ -35,7 +35,7 @@ llm:
 notion:
   # The ID of the database where meeting pages will be created.
   # Find it in the Notion URL: notion.so/<workspace>/<DATABASE_ID>?v=...
-  database_id: ""                        # fill in after creating your Notion DB
+  database_id: "5fbcfb8438b74757bd38f8dc72214f95"               
   # Property names in your database — change if yours differ
   properties:
     title: Title
