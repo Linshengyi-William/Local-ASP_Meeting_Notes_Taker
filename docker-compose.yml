@@ -1,0 +1,95 @@
+# =============================================================================
+# WHAT IS THIS FILE?
+#
+# docker-compose.yml is the "run instructions" file. While the Dockerfile
+# describes HOW to build the image, this file describes HOW TO RUN it:
+#   - which environment variables to inject
+#   - which folders on your laptop to share with the container (volumes)
+#   - whether to use the GPU
+#   - any other runtime settings
+#
+# Instead of typing a very long "docker run ..." command every time, you just
+# run "docker compose run pipeline" and Docker reads all settings from here.
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # The "pipeline" service = our meeting notes container
+  # ---------------------------------------------------------------------------
+  pipeline:
+
+    # ── Build ─────────────────────────────────────────────────────────────────
+    # "build: ." means: build the image from the Dockerfile in the current
+    # directory.  Docker only rebuilds when the Dockerfile or its dependencies
+    # change — subsequent runs reuse the cached image.
+    build: .
+
+    # Give the built image a human-readable name so it's easy to find in
+    # "docker images" output.
+    image: meeting-notes-pipeline:latest
+
+    # ── Environment variables ─────────────────────────────────────────────────
+    # Reads your .env file and injects ANTHROPIC_API_KEY and NOTION_TOKEN into
+    # the container as environment variables.  The container never sees the
+    # .env file itself — only the values.  This keeps secrets out of the image.
+    env_file:
+      - .env
+
+    # ── Volumes ───────────────────────────────────────────────────────────────
+    # A volume is a "bridge" between a folder on your host machine and a folder
+    # inside the container.  Changes on either side are immediately visible to
+    # the other side — like a shared folder.
+    #
+    # Format:  host_path:container_path
+    volumes:
+      # 1. meetings/ — your audio inbox and all pipeline outputs
+      #    You drop .m4a files into meetings/inbox/ on your laptop;
+      #    the container reads them and writes transcripts + notes back there.
+      #    Without this mount, the container would be isolated and you'd have no
+      #    way to get files in or results out.
+      - ./meetings:/app/meetings
+
+      # 2. Whisper model cache — a named Docker volume (not a host folder)
+      #    The first time the pipeline runs, faster-whisper downloads the
+      #    large-v3-turbo model (~1.5 GB) and stores it here.
+      #    By using a named volume, that download survives container restarts
+      #    and rebuilds — you won't re-download it every time.
+      - whisper_cache:/root/.cache/huggingface
+
+      # 3. (Optional) Override config without rebuilding the image
+      #    Uncomment this line if you want to edit config/config.yaml on your
+      #    host and have the container pick up changes immediately.
+      # - ./config:/app/config
+
+    # ── GPU support ───────────────────────────────────────────────────────────
+    # This block tells Docker to pass your NVIDIA GPU through to the container.
+    # Requirements (Windows):
+    #   1. WSL2 enabled (Settings → Windows Features → Windows Subsystem for Linux)
+    #   2. NVIDIA driver ≥ 520 installed on Windows (not inside WSL)
+    #   3. NVIDIA Container Toolkit installed inside WSL2:
+    #      https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+    #   4. Docker Desktop set to use the WSL2 backend (Docker Desktop → Settings
+    #      → General → "Use the WSL 2 based engine" ✓)
+    #
+    # If you DON'T have a GPU or haven't done the above setup yet:
+    #   Comment out the entire "deploy:" block below.
+    #   The pipeline will still work — just slower (CPU inference).
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all          # use all available GPUs (usually just 1)
+              capabilities: [gpu]
+
+# =============================================================================
+# Named volumes
+# =============================================================================
+# Named volumes are managed by Docker itself (stored under Docker's data
+# directory, not inside your project folder).  They persist across "docker
+# compose down" and rebuilds.  You can inspect them with "docker volume ls".
+volumes:
+  whisper_cache:
+    # driver: local is the default — just a folder managed by Docker Desktop
+    driver: local
