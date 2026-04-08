@@ -1,0 +1,41 @@
+# =============================================================================
+# WHAT IS THIS FILE?
+#
+# .dockerignore works exactly like .gitignore but for Docker builds.
+# When you run "docker compose build", Docker sends the entire project folder
+# to the Docker build engine (called the "build context"). .dockerignore tells
+# it what to skip — keeping the context small and preventing secrets from
+# accidentally ending up inside the image.
+# =============================================================================
+
+# Secrets — NEVER bake these into the image
+.env
+
+# Git metadata — not needed inside the container
+.git
+.gitignore
+
+# Audio files and pipeline outputs — these are mounted as a volume at runtime,
+# not baked into the image. Including them would bloat the image by hundreds
+# of MB / GB and they'd be stale anyway.
+meetings/
+
+# Python bytecode and virtual environments on the host
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# Local model cache — if you have one, it's large; it'll be re-downloaded
+# into the whisper_cache Docker volume on first run instead
+*.bin
+*.safetensors
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo

@@ -1,0 +1,46 @@
+# ─── Paths ────────────────────────────────────────────────────────────────────
+paths:
+  inbox: meetings/inbox                  # drop audio files here
+  transcripts_raw: meetings/transcripts/raw
+  transcripts_clean: meetings/transcripts/clean
+  notes: meetings/notes                  # local JSON backup of generated notes
+
+# ─── Transcription (faster-whisper) ───────────────────────────────────────────
+transcription:
+  model: large-v3-turbo                  # model size; options: tiny/base/small/medium/large-v3/large-v3-turbo
+  device: auto                           # auto | cuda | cpu
+  compute_type: auto                     # auto | float16 | int8 | int8_float16
+  language: null                         # null = auto-detect; or "zh" / "en" for forced lang
+  beam_size: 5
+  vad_filter: true                       # Voice Activity Detection — trims silence
+  word_timestamps: false                 # set true if you want per-word timestamps
+
+# ─── Transcript Cleaning ──────────────────────────────────────────────────────
+cleaning:
+  min_segment_chars: 3                   # segments shorter than this are dropped
+  dedup_window: 3                        # how many consecutive segments to check for near-duplicates
+  dedup_similarity_threshold: 0.85       # cosine-like ratio; segments above this are merged/dropped
+
+# ─── LLM ──────────────────────────────────────────────────────────────────────
+llm:
+  # Default provider. Override at runtime with --provider anthropic
+  provider: openai                        # openai | anthropic
+  model: gpt-4o                           # openai: gpt-4o / gpt-4o-mini  |  anthropic: claude-sonnet-4-6
+  max_tokens: 4096
+  temperature: 0.3
+  # Output language for the notes. Options: "en" | "zh" | "bilingual"
+  output_language: bilingual
+
+# ─── Notion ───────────────────────────────────────────────────────────────────
+notion:
+  # The ID of the database where meeting pages will be created.
+  # Find it in the Notion URL: notion.so/<workspace>/<DATABASE_ID>?v=...
+  database_id: ""               
+  # Property names in your database — change if yours differ
+  properties:
+    title: Title
+    date: Date
+    project: Project
+    meeting_type: Meeting Type
+    status: Status
+    tags: Tags
