@@ -65,8 +65,9 @@ Return ONLY valid JSON with these keys and nothing else.
 
 # ── Provider backends ─────────────────────────────────────────────────────────
 
-def _call_openai(system: str, user: str, model: str, max_tokens: int, temperature: float) -> str:
+def _call_openai(system: str, user: str, model: str, max_tokens: int, temperature: float, max_retries: int = 3) -> str:
     from openai import OpenAI
+    from utils import retry_with_backoff, _openai_retryable
 
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
@@ -75,20 +76,30 @@ def _call_openai(system: str, user: str, model: str, max_tokens: int, temperatur
         )
     client = OpenAI(api_key=api_key)
     logger.info("Calling OpenAI (%s) to generate meeting notes ...", model)
-    response = client.chat.completions.create(
-        model=model,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user",   "content": user},
-        ],
+
+    def _do_call():
+        response = client.chat.completions.create(
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user",   "content": user},
+            ],
+        )
+        return response.choices[0].message.content.strip()
+
+    return retry_with_backoff(
+        _do_call,
+        max_retries=max_retries,
+        base_delay=2.0,
+        retryable_exceptions=_openai_retryable(),
     )
-    return response.choices[0].message.content.strip()
 
 
-def _call_anthropic(system: str, user: str, model: str, max_tokens: int, temperature: float) -> str:
+def _call_anthropic(system: str, user: str, model: str, max_tokens: int, temperature: float, max_retries: int = 3) -> str:
     import anthropic
+    from utils import retry_with_backoff, _anthropic_retryable
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -97,14 +108,23 @@ def _call_anthropic(system: str, user: str, model: str, max_tokens: int, tempera
         )
     client = anthropic.Anthropic(api_key=api_key)
     logger.info("Calling Anthropic (%s) to generate meeting notes ...", model)
-    message = client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        system=system,
-        messages=[{"role": "user", "content": user}],
+
+    def _do_call():
+        message = client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+        return message.content[0].text.strip()
+
+    return retry_with_backoff(
+        _do_call,
+        max_retries=max_retries,
+        base_delay=2.0,
+        retryable_exceptions=_anthropic_retryable(),
     )
-    return message.content[0].text.strip()
 
 
 _PROVIDERS = {
@@ -157,11 +177,12 @@ def generate_notes(
     transcript_text = transcript_path.read_text(encoding="utf-8")
 
     lcfg = cfg.get("llm", {})
-    provider   = (provider or lcfg.get("provider", "openai")).lower()
-    model      = _resolve_model(provider, lcfg.get("model", _DEFAULT_MODELS[provider]))
-    max_tokens = int(lcfg.get("max_tokens", 4096))
+    provider    = (provider or lcfg.get("provider", "openai")).lower()
+    model       = _resolve_model(provider, lcfg.get("model", _DEFAULT_MODELS[provider]))
+    max_tokens  = int(lcfg.get("max_tokens", 4096))
     temperature = float(lcfg.get("temperature", 0.3))
     output_lang = lcfg.get("output_language", "bilingual")
+    max_retries = int(lcfg.get("max_retries", 3))
 
     if provider not in _PROVIDERS:
         raise ValueError(f"Unknown provider '{provider}'. Choose: {list(_PROVIDERS)}")
@@ -169,7 +190,7 @@ def generate_notes(
     system_prompt = _SYSTEM_MAP.get(output_lang, _SYSTEM_BILINGUAL)
     user_message  = _USER_TEMPLATE.format(transcript=transcript_text)
 
-    raw_response = _PROVIDERS[provider](system_prompt, user_message, model, max_tokens, temperature)
+    raw_response = _PROVIDERS[provider](system_prompt, user_message, model, max_tokens, temperature, max_retries)
 
     # Strip markdown code fences if the model wrapped the JSON
     if raw_response.startswith("```"):
