@@ -20,19 +20,41 @@ logger = logging.getLogger(__name__)
 
 _SYSTEM_EN = """\
 You are an expert meeting notes writer. Given a meeting transcript (which may
-contain Chinese, English, or a mix of both), produce concise, structured notes
-in English. Be faithful to the content — do not fabricate details.
+contain Chinese, English, or a mix of both), produce structured notes in English.
+
+Your top priority is COMPLETENESS — a reader who was not in the meeting must be
+able to fully reconstruct what happened, what was decided, and why, without
+needing to read the original transcript. Do not omit context, background,
+nuance, or minority viewpoints just to keep notes short. Length must match the
+meeting's actual complexity: a 10-minute stand-up warrants a brief summary; a
+2-hour planning session warrants a detailed one.
+
+Be faithful to the content — do not fabricate details.
 """
 
 _SYSTEM_ZH = """\
 你是一位专业的会议记录整理助手。根据提供的会议转录文本（可能包含中文、英文或混合内容），
-生成简洁、结构化的会议记录（中文输出）。保持内容忠实，不要添加转录中没有的信息。
+生成结构化的会议记录（中文输出）。
+
+你的首要任务是完整性——没有参会的读者必须能够完全了解会议中发生了什么、做出了哪些决定以及原因，
+而无需阅读原始转录文本。不要为了简洁而省略背景信息、细节或少数意见。记录长度应与会议实际复杂程度相符：
+10分钟的站会可以简短，2小时的规划会议则需要详尽记录。
+
+保持内容忠实，不要添加转录中没有的信息。
 """
 
 _SYSTEM_BILINGUAL = """\
 You are an expert meeting notes writer. Given a meeting transcript (which may
 contain Chinese, English, or a mix of both), produce structured notes with
 each section written first in English then in Chinese (简体中文).
+
+Your top priority is COMPLETENESS — a reader who was not in the meeting must be
+able to fully reconstruct what happened, what was decided, and why, without
+needing to read the original transcript. Do not omit context, background,
+nuance, or minority viewpoints just to keep notes short. Length must match the
+meeting's actual complexity: a 10-minute stand-up warrants a brief summary; a
+2-hour planning session warrants a detailed one.
+
 Be faithful to the content — do not fabricate details.
 """
 
@@ -50,13 +72,42 @@ Below is the cleaned transcript of a meeting.
 ---TRANSCRIPT END---
 
 Please extract and return a JSON object with the following keys:
+
   "title"           : A short descriptive meeting title (inferred from context)
-  "summary"         : 2-4 sentence executive summary
-  "key_points"      : list of strings — major discussion topics
-  "decisions"       : list of strings — decisions that were made
-  "action_items"    : list of objects with keys "owner", "task", "due" (due may be null)
-  "open_questions"  : list of strings — unresolved questions or topics requiring follow-up
-  "risks"           : list of strings — risks or concerns raised (may be empty list)
+
+  "tldr"            : 1-2 sentences maximum. The absolute quickest recap: what
+                      this meeting was about and the single most critical outcome
+                      or decision. Someone reading only this should know whether
+                      the meeting is relevant to them.
+
+  "summary"         : A comprehensive narrative summary. The reader must be able
+                      to fully understand what happened without reading the
+                      transcript. Include: the purpose/context of the meeting,
+                      all major topics discussed (with enough detail to convey
+                      the substance of each discussion), key conclusions reached,
+                      and any important background or constraints mentioned.
+                      Scale the length to the meeting's complexity — a brief
+                      check-in may need 3-4 sentences; a detailed planning or
+                      technical discussion may need 8-15 sentences or more.
+                      Never cut content for the sake of brevity.
+
+  "key_points"      : list of strings — one entry per major discussion point,
+                      with enough context to be self-contained (not just a topic
+                      label, but a brief statement of what was discussed and
+                      what the conclusion or status was)
+
+  "decisions"       : list of strings — every decision that was made, including
+                      minor ones; include the reasoning if stated
+
+  "action_items"    : list of objects with keys "owner", "task", "due"
+                      (due may be null); capture every commitment made
+
+  "open_questions"  : list of strings — every unresolved question or topic that
+                      needs follow-up, including things that were tabled
+
+  "risks"           : list of strings — risks, concerns, or blockers raised
+                      (may be empty list)
+
   "tags"            : list of 1-5 short topic tags (e.g. ["product", "roadmap", "Q2"])
 
 Return ONLY valid JSON with these keys and nothing else.

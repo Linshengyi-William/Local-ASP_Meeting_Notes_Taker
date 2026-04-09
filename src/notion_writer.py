@@ -75,6 +75,18 @@ def _todo(text: str, checked: bool = False) -> dict:
     }
 
 
+def _callout(text: str, emoji: str = "💡") -> dict:
+    text = text[:_NOTION_MAX_BLOCK_TEXT]
+    return {
+        "object": "block",
+        "type": "callout",
+        "callout": {
+            "rich_text": [{"type": "text", "text": {"content": text}}],
+            "icon": {"type": "emoji", "emoji": emoji},
+        },
+    }
+
+
 def _divider() -> dict:
     return {"object": "block", "type": "divider", "divider": {}}
 
@@ -94,6 +106,11 @@ def _toggle(title: str, children: list[dict]) -> dict:
 
 def _build_content_blocks(notes: dict, transcript_text: Optional[str]) -> list[dict]:
     blocks: list[dict] = []
+
+    # TL;DR callout — always first if present
+    if notes.get("tldr"):
+        blocks.append(_callout(notes["tldr"], emoji="⚡"))
+        blocks.append(_divider())
 
     # Summary
     if notes.get("summary"):
