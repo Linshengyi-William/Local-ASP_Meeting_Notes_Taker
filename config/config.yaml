@@ -4,6 +4,7 @@ paths:
   transcripts_raw: meetings/transcripts/raw
   transcripts_clean: meetings/transcripts/clean
   notes: meetings/notes                  # local JSON backup of generated notes
+  manifest: meetings/processed.json      # processing history (status, notion URLs, errors)
 
 # ─── Transcription (faster-whisper) ───────────────────────────────────────────
 transcription:
@@ -30,12 +31,14 @@ llm:
   temperature: 0.3
   # Output language for the notes. Options: "en" | "zh" | "bilingual"
   output_language: bilingual
+  max_retries: 3                          # retry API calls on rate-limit / connection errors
 
 # ─── Notion ───────────────────────────────────────────────────────────────────
 notion:
   # The ID of the database where meeting pages will be created.
   # Find it in the Notion URL: notion.so/<workspace>/<DATABASE_ID>?v=...
-  database_id: ""               
+  database_id: ""
+  max_retries: 3                          # retry Notion API calls on 429 / 500 / 503
   # Property names in your database — change if yours differ
   properties:
     title: Title

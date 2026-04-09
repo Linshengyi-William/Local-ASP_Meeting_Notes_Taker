@@ -235,6 +235,8 @@ def write_to_notion(
             "NOTION_TOKEN is not set. Add it to your .env file."
         )
 
+    from utils import retry_with_backoff_predicate, _notion_is_retryable
+
     ncfg = cfg.get("notion", {})
     database_id = ncfg.get("database_id", "")
     if not database_id:
@@ -242,6 +244,7 @@ def write_to_notion(
             "notion.database_id is empty in config/config.yaml. "
             "Set it to the ID of your Notion meeting notes database."
         )
+    max_retries = int(ncfg.get("max_retries", 3))
 
     prop_names = ncfg.get("properties", {})
     if not meeting_date:
@@ -253,10 +256,19 @@ def write_to_notion(
     content_blocks = _build_content_blocks(notes, transcript_text)
 
     logger.info("Creating Notion page: '%s' ...", notes.get("title", "Meeting Notes"))
-    response = client.pages.create(
-        parent={"database_id": database_id},
-        properties=properties,
-        children=content_blocks,
+
+    def _do_create():
+        return client.pages.create(
+            parent={"database_id": database_id},
+            properties=properties,
+            children=content_blocks,
+        )
+
+    response = retry_with_backoff_predicate(
+        _do_create,
+        max_retries=max_retries,
+        base_delay=2.0,
+        is_retryable=_notion_is_retryable,
     )
 
     page_url = response.get("url", "")
