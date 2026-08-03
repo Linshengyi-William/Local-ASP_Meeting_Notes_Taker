@@ -1,7 +1,7 @@
 """
 generate_notes.py — Generate structured meeting notes from a cleaned transcript.
 
-Default provider: OpenAI (gpt-4o).
+Default provider: OpenAI (gpt-5-mini).
 Override at runtime with --provider anthropic (uses claude-sonnet-4-6).
 """
 
@@ -18,44 +18,81 @@ logger = logging.getLogger(__name__)
 
 # ── Prompt templates ──────────────────────────────────────────────────────────
 
-_SYSTEM_EN = """\
+_EXHAUSTIVE_RULES_EN = """\
+Your single overriding priority is EXHAUSTIVE COMPLETENESS. These notes are
+meant to REPLACE the transcript. A reader who was not in the meeting must be
+able to reconstruct everything that happened, what was decided, and why,
+without ever opening the original.
+
+Follow these rules strictly:
+
+1. COVER THE ENTIRE MEETING, START TO FINISH. Work through the transcript in
+   order and account for every segment of it. Never let the middle or the end
+   of a long meeting collapse into a sentence or two — this is the most common
+   failure mode and it is unacceptable.
+2. PRESERVE ALL SPECIFICS VERBATIM: numbers, prices, dates, deadlines, metrics,
+   percentages, names of people, companies, products, tools, technologies, file
+   names, URLs, and any concrete example someone gave. Never round, generalise,
+   or replace a specific with a vague phrase ("some issues", "a few options").
+3. CAPTURE THE REASONING, not just the outcome. Record why something was
+   proposed, what the alternatives were, what objections were raised, who
+   disagreed and on what grounds, and how it was ultimately resolved.
+4. KEEP MINORITY AND DISSENTING VIEWS, tangents, side discussions, and points
+   that were raised and dropped. Note explicitly when something was left
+   unresolved or deferred.
+5. ATTRIBUTE STATEMENTS to whoever made them whenever the speaker is
+   identifiable from the transcript.
+6. NEVER COMPRESS FOR BREVITY. There is no length limit and no reward for being
+   concise. Being too short is a failure; being long and thorough is correct.
+   Longer meetings must produce proportionally longer notes.
+7. BE FAITHFUL. Never invent, infer, or embellish anything that was not
+   actually said. If something was genuinely unclear or inaudible in the
+   transcript, say so rather than guessing.
+"""
+
+_SYSTEM_EN = f"""\
 You are an expert meeting notes writer. Given a meeting transcript (which may
 contain Chinese, English, or a mix of both), produce structured notes in English.
 
-Your top priority is COMPLETENESS — a reader who was not in the meeting must be
-able to fully reconstruct what happened, what was decided, and why, without
-needing to read the original transcript. Do not omit context, background,
-nuance, or minority viewpoints just to keep notes short. Length must match the
-meeting's actual complexity: a 10-minute stand-up warrants a brief summary; a
-2-hour planning session warrants a detailed one.
+{_EXHAUSTIVE_RULES_EN}"""
 
-Be faithful to the content — do not fabricate details.
+_EXHAUSTIVE_RULES_ZH = """\
+你的最高优先级是**极致的完整性**。这份记录的目标是**取代**转录原文——没有参会的读者
+必须能够仅凭这份记录还原会议的全部内容、所有决定及其原因，而无需再打开原始转录。
+
+请严格遵守以下规则：
+
+1. **完整覆盖整场会议，从头到尾。** 按时间顺序梳理转录文本，确保每一段都有对应的记录。
+   绝不允许长会议的中段或结尾被压缩成一两句话——这是最常见也最不可接受的错误。
+2. **完整保留所有具体信息：** 数字、金额、日期、截止时间、指标、百分比、人名、公司名、
+   产品名、工具、技术、文件名、网址，以及任何人举过的具体例子。不要取整、不要泛化，
+   不要用"一些问题""几个方案"这类模糊说法替代具体内容。
+3. **记录推理过程，而不只是结论。** 说明某个方案为什么被提出、有哪些备选方案、
+   有人提出了什么反对意见、谁不同意以及理由是什么、最终如何解决。
+4. **保留少数意见和反对意见**，以及跑题内容、附带讨论、提出后又被放下的话题。
+   如果某件事没有结论或被推迟，要明确写出来。
+5. **注明发言人。** 只要能从转录中识别出说话的人，就标明这段话是谁说的。
+6. **绝不为了简洁而压缩。** 没有篇幅限制，简洁不会得到任何加分。
+   太短就是失败；详尽冗长才是正确的。会议越长，记录就必须越长。
+7. **忠实于原文。** 不要编造、推测或美化任何没有真正说过的内容。
+   如果转录中某处确实含糊不清或听不清楚，就如实说明，不要猜测。
 """
 
-_SYSTEM_ZH = """\
+_SYSTEM_ZH = f"""\
 你是一位专业的会议记录整理助手。根据提供的会议转录文本（可能包含中文、英文或混合内容），
-生成结构化的会议记录（中文输出）。
+生成结构化的会议记录，并且**全部使用简体中文输出**。即使转录原文是英文或其他语言，
+也要翻译成简体中文；不要使用繁体字。
 
-你的首要任务是完整性——没有参会的读者必须能够完全了解会议中发生了什么、做出了哪些决定以及原因，
-而无需阅读原始转录文本。不要为了简洁而省略背景信息、细节或少数意见。记录长度应与会议实际复杂程度相符：
-10分钟的站会可以简短，2小时的规划会议则需要详尽记录。
+{_EXHAUSTIVE_RULES_ZH}"""
 
-保持内容忠实，不要添加转录中没有的信息。
-"""
-
-_SYSTEM_BILINGUAL = """\
+_SYSTEM_BILINGUAL = f"""\
 You are an expert meeting notes writer. Given a meeting transcript (which may
 contain Chinese, English, or a mix of both), produce structured notes with
 each section written first in English then in Chinese (简体中文).
 
-Your top priority is COMPLETENESS — a reader who was not in the meeting must be
-able to fully reconstruct what happened, what was decided, and why, without
-needing to read the original transcript. Do not omit context, background,
-nuance, or minority viewpoints just to keep notes short. Length must match the
-meeting's actual complexity: a 10-minute stand-up warrants a brief summary; a
-2-hour planning session warrants a detailed one.
-
-Be faithful to the content — do not fabricate details.
+{_EXHAUSTIVE_RULES_EN}
+Both language versions must be equally detailed — never write a full English
+section and then a short Chinese gloss of it, or vice versa.
 """
 
 _SYSTEM_MAP = {
@@ -70,7 +107,7 @@ Below is the cleaned transcript of a meeting.
 ---TRANSCRIPT START---
 {transcript}
 ---TRANSCRIPT END---
-
+{length_directive}
 Please extract and return a JSON object with the following keys:
 
   "title"           : A short descriptive meeting title (inferred from context)
@@ -78,35 +115,58 @@ Please extract and return a JSON object with the following keys:
   "tldr"            : 1-2 sentences maximum. The absolute quickest recap: what
                       this meeting was about and the single most critical outcome
                       or decision. Someone reading only this should know whether
-                      the meeting is relevant to them.
+                      the meeting is relevant to them. This is the ONLY field
+                      that should be short.
 
-  "summary"         : A comprehensive narrative summary. The reader must be able
-                      to fully understand what happened without reading the
-                      transcript. Include: the purpose/context of the meeting,
-                      all major topics discussed (with enough detail to convey
-                      the substance of each discussion), key conclusions reached,
-                      and any important background or constraints mentioned.
-                      Scale the length to the meeting's complexity — a brief
-                      check-in may need 3-4 sentences; a detailed planning or
-                      technical discussion may need 8-15 sentences or more.
-                      Never cut content for the sake of brevity.
+  "summary"         : A comprehensive narrative summary covering the purpose and
+                      context of the meeting, every major topic discussed, the
+                      conclusions reached, and any important background or
+                      constraints. Scale the length to the meeting: a brief
+                      check-in may need 4-6 sentences; an hour-long discussion
+                      needs several full paragraphs. Never cut content for
+                      brevity.
 
-  "key_points"      : list of strings — one entry per major discussion point,
-                      with enough context to be self-contained (not just a topic
-                      label, but a brief statement of what was discussed and
-                      what the conclusion or status was)
+  "discussion"      : THE MOST IMPORTANT FIELD — a chronological, section-by-
+                      section walkthrough of the entire meeting. This is what
+                      guarantees nothing is lost, so give it the bulk of your
+                      effort. A list of objects, each with:
+                        "topic"   : short heading naming this segment of the
+                                    discussion
+                        "details" : list of strings — the substance of that
+                                    segment in depth. Each string is one
+                                    specific point, argument, example, number,
+                                    concern, or exchange. Include who said what
+                                    where identifiable, the reasoning behind
+                                    positions, alternatives considered, and
+                                    objections raised.
+                      Create one entry for EVERY distinct topic the meeting
+                      moved through, in the order it was discussed — including
+                      brief topics, tangents, and small talk that carried real
+                      information. A substantial meeting should produce many
+                      entries with many details each. Do NOT merge unrelated
+                      topics together to shorten this list, and do NOT let
+                      coverage thin out toward the end of the transcript.
+
+  "key_points"      : list of strings — the headline takeaways, each
+                      self-contained (what was discussed AND the conclusion or
+                      status). This is a digest of "discussion", not a
+                      replacement for it.
 
   "decisions"       : list of strings — every decision that was made, including
-                      minor ones; include the reasoning if stated
+                      minor ones; include the reasoning and who made the call
+                      when stated
 
   "action_items"    : list of objects with keys "owner", "task", "due"
-                      (due may be null); capture every commitment made
+                      (due may be null); capture every commitment made, however
+                      small, including tentative ones. Make "task" specific
+                      enough to act on without further context.
 
   "open_questions"  : list of strings — every unresolved question or topic that
-                      needs follow-up, including things that were tabled
+                      needs follow-up, including things that were tabled or
+                      deferred
 
-  "risks"           : list of strings — risks, concerns, or blockers raised
-                      (may be empty list)
+  "risks"           : list of strings — risks, concerns, blockers, or objections
+                      raised (may be empty list)
 
   "tags"            : list of 1-5 short topic tags (e.g. ["product", "roadmap", "Q2"])
 
@@ -114,9 +174,91 @@ Return ONLY valid JSON with these keys and nothing else.
 """
 
 
+# ── Output sizing ─────────────────────────────────────────────────────────────
+
+def _estimate_tokens(text: str) -> int:
+    """
+    Rough token count for mixed Chinese/English text. CJK characters are roughly
+    one token each; Latin text averages ~4 characters per token.
+    """
+    cjk = sum(1 for ch in text if "一" <= ch <= "鿿")
+    return int(cjk + (len(text) - cjk) / 4)
+
+
+def _length_directive(transcript_text: str) -> str:
+    """
+    Tell the model how substantial the transcript is and how much output is
+    expected. Without this, models compress long meetings into roughly the same
+    amount of output as short ones.
+    """
+    tokens = _estimate_tokens(transcript_text)
+    if tokens < 2000:
+        expectation = (
+            "This is a SHORT meeting. Still cover every topic it touched, but the "
+            "notes will naturally be modest in length."
+        )
+    elif tokens < 8000:
+        expectation = (
+            "This is a MEDIUM-LENGTH meeting. Expect roughly 5-10 entries in "
+            "\"discussion\", each with several detailed points."
+        )
+    elif tokens < 20000:
+        expectation = (
+            "This is a LONG meeting. Expect roughly 10-20 entries in "
+            "\"discussion\", each with many detailed points. Do not compress it."
+        )
+    else:
+        expectation = (
+            "This is a VERY LONG meeting. Expect 20+ entries in \"discussion\", "
+            "each with many detailed points. The single biggest risk here is that "
+            "you summarise the opening thoroughly and then rush the rest — do not "
+            "do that. Give the later parts of the transcript the same depth as "
+            "the beginning."
+        )
+    return (
+        f"\nThe transcript above is approximately {tokens:,} tokens long. "
+        f"{expectation}\n"
+    )
+
+
+def _adaptive_max_tokens(transcript_text: str, floor: int, cap: int) -> int:
+    """
+    Size the output budget to the transcript.
+
+    Exhaustive notes approach the length of the transcript itself, so a fixed
+    budget silently truncates long meetings — exactly the detail loss we're
+    trying to avoid. This is only a ceiling: the API bills for tokens actually
+    generated, so a generous cap costs nothing on short meetings.
+    """
+    needed = int(_estimate_tokens(transcript_text) * 1.5) + 4000
+    return max(floor, min(needed, cap))
+
+
 # ── Provider backends ─────────────────────────────────────────────────────────
 
-def _call_openai(system: str, user: str, model: str, max_tokens: int, temperature: float, max_retries: int = 3) -> str:
+# OpenAI reasoning models (gpt-5 family, o-series) have a different parameter
+# surface from the older chat models:
+#   - "max_tokens" is rejected; they use "max_completion_tokens"
+#   - "temperature" only accepts the default (1); any other value is a 400
+#   - they support "reasoning_effort" / "verbosity", which chat models don't
+# Older models (gpt-4o, gpt-4o-mini) keep the classic parameters.
+_OPENAI_REASONING_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+
+
+def _is_openai_reasoning_model(model: str) -> bool:
+    return model.startswith(_OPENAI_REASONING_PREFIXES)
+
+
+def _call_openai(
+    system: str,
+    user: str,
+    model: str,
+    max_tokens: int,
+    temperature: float,
+    max_retries: int = 3,
+    reasoning_effort: str | None = None,
+    verbosity: str | None = None,
+) -> str:
     from openai import OpenAI
     from utils import retry_with_backoff, _openai_retryable
 
@@ -126,19 +268,45 @@ def _call_openai(system: str, user: str, model: str, max_tokens: int, temperatur
             "OPENAI_API_KEY is not set. Add it to your .env file."
         )
     client = OpenAI(api_key=api_key)
+
+    params: dict = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user},
+        ],
+    }
+
+    if _is_openai_reasoning_model(model):
+        # Reasoning tokens are billed against this budget too, so it needs to be
+        # comfortably larger than the notes themselves.
+        params["max_completion_tokens"] = max_tokens
+        if reasoning_effort:
+            params["reasoning_effort"] = reasoning_effort
+        if verbosity:
+            params["verbosity"] = verbosity
+        if temperature != 1.0:
+            logger.debug(
+                "Ignoring llm.temperature=%s — %s only supports the default value.",
+                temperature, model,
+            )
+    else:
+        params["max_tokens"] = max_tokens
+        params["temperature"] = temperature
+
     logger.info("Calling OpenAI (%s) to generate meeting notes ...", model)
 
     def _do_call():
-        response = client.chat.completions.create(
-            model=model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user",   "content": user},
-            ],
-        )
-        return response.choices[0].message.content.strip()
+        response = client.chat.completions.create(**params)
+        content = response.choices[0].message.content
+        if not content:
+            finish_reason = response.choices[0].finish_reason
+            raise ValueError(
+                f"{model} returned an empty response (finish_reason={finish_reason}). "
+                "If finish_reason is 'length', raise llm.max_tokens in config.yaml — "
+                "reasoning models spend part of that budget before writing output."
+            )
+        return content.strip()
 
     return retry_with_backoff(
         _do_call,
@@ -186,7 +354,7 @@ _PROVIDERS = {
 # Default models per provider if the config model looks like it belongs to the
 # other provider (e.g. user switches --provider without updating config.yaml)
 _DEFAULT_MODELS = {
-    "openai":    "gpt-4o",
+    "openai":    "gpt-5-mini",
     "anthropic": "claude-sonnet-4-6",
 }
 
@@ -213,6 +381,7 @@ def generate_notes(
     cfg: dict,
     output_dir: Optional[str | Path] = None,
     provider: Optional[str] = None,
+    lang: Optional[str] = None,
 ) -> dict:
     """
     Read the cleaned transcript at *transcript_path*, call the LLM, and return
@@ -223,6 +392,8 @@ def generate_notes(
         cfg:             Full config dict.
         output_dir:      If given, saves the result as JSON here.
         provider:        "openai" or "anthropic". Overrides config when set.
+        lang:            Output language: "en" | "zh" | "bilingual".
+                         Overrides llm.output_language in config when set.
     """
     transcript_path = Path(transcript_path)
     transcript_text = transcript_path.read_text(encoding="utf-8")
@@ -230,18 +401,43 @@ def generate_notes(
     lcfg = cfg.get("llm", {})
     provider    = (provider or lcfg.get("provider", "openai")).lower()
     model       = _resolve_model(provider, lcfg.get("model", _DEFAULT_MODELS[provider]))
-    max_tokens  = int(lcfg.get("max_tokens", 4096))
     temperature = float(lcfg.get("temperature", 0.3))
-    output_lang = lcfg.get("output_language", "bilingual")
+    output_lang = (lang or lcfg.get("output_language", "bilingual")).lower()
     max_retries = int(lcfg.get("max_retries", 3))
+
+    max_tokens = _adaptive_max_tokens(
+        transcript_text,
+        floor=int(lcfg.get("max_tokens", 16000)),
+        cap=int(lcfg.get("max_tokens_cap", 64000)),
+    )
 
     if provider not in _PROVIDERS:
         raise ValueError(f"Unknown provider '{provider}'. Choose: {list(_PROVIDERS)}")
 
     system_prompt = _SYSTEM_MAP.get(output_lang, _SYSTEM_BILINGUAL)
-    user_message  = _USER_TEMPLATE.format(transcript=transcript_text)
+    user_message  = _USER_TEMPLATE.format(
+        transcript=transcript_text,
+        length_directive=_length_directive(transcript_text),
+    )
 
-    raw_response = _PROVIDERS[provider](system_prompt, user_message, model, max_tokens, temperature, max_retries)
+    logger.info(
+        "Transcript ~%d tokens; allowing up to %d output tokens.",
+        _estimate_tokens(transcript_text), max_tokens,
+    )
+
+    # Options only understood by the OpenAI reasoning models; left out entirely
+    # when unset so we never send them to a model that would reject them.
+    extra: dict = {}
+    if provider == "openai":
+        if lcfg.get("reasoning_effort"):
+            extra["reasoning_effort"] = str(lcfg["reasoning_effort"]).lower()
+        # Default to "high" — this directly controls how much the gpt-5 family
+        # writes, and detailed notes are the whole point here.
+        extra["verbosity"] = str(lcfg.get("verbosity", "high")).lower()
+
+    raw_response = _PROVIDERS[provider](
+        system_prompt, user_message, model, max_tokens, temperature, max_retries, **extra
+    )
 
     # Strip markdown code fences if the model wrapped the JSON
     if raw_response.startswith("```"):
@@ -259,6 +455,7 @@ def generate_notes(
     notes["_source"]   = transcript_path.name
     notes["_provider"] = provider
     notes["_model"]    = model
+    notes["_language"] = output_lang
 
     if output_dir:
         output_dir = Path(output_dir)
@@ -287,11 +484,15 @@ if __name__ == "__main__":
         "--provider", default=None, choices=["openai", "anthropic"],
         help="LLM provider to use (overrides config). Default: openai",
     )
+    parser.add_argument(
+        "--lang", default=None, choices=["en", "zh", "bilingual"],
+        help="Output language (overrides config). zh = Simplified Chinese.",
+    )
     args = parser.parse_args()
 
     with open(args.config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
 
     out_dir = args.output_dir or cfg["paths"]["notes"]
-    notes = generate_notes(args.transcript, cfg, out_dir, provider=args.provider)
+    notes = generate_notes(args.transcript, cfg, out_dir, provider=args.provider, lang=args.lang)
     print(json.dumps(notes, ensure_ascii=False, indent=2))
