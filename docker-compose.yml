@@ -75,13 +75,13 @@ services:
     # If you DON'T have a GPU or haven't done the above setup yet:
     #   Comment out the entire "deploy:" block below.
     #   The pipeline will still work — just slower (CPU inference).
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all          # use all available GPUs (usually just 1)
-              capabilities: [gpu]
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all          # use all available GPUs (usually just 1)
+    #           capabilities: [gpu]
 
 # =============================================================================
 # Named volumes

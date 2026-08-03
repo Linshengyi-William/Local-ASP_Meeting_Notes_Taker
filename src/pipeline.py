@@ -14,6 +14,7 @@ Flags:
     --config        Path to config YAML (default: config/config.yaml)
     --force         Re-run all steps even if outputs already exist
     --provider      LLM provider override: openai | anthropic
+    --lang          Output language override: en | zh | bilingual  (zh = Simplified Chinese)
     --status        Print processing history and exit
     --watch         Watch inbox for new audio files and process automatically
 """
@@ -184,6 +185,7 @@ def process_file(
     project: str | None = None,
     force: bool = False,
     provider: str | None = None,
+    lang: str | None = None,
     manifest: dict | None = None,
     manifest_path: Path | None = None,
 ) -> dict | None:
@@ -263,7 +265,7 @@ def process_file(
     else:
         logger.info("  [3/4] Generating meeting notes via LLM ...")
         try:
-            notes = generate_notes(clean_txt_path, cfg, paths["notes"], provider=provider)
+            notes = generate_notes(clean_txt_path, cfg, paths["notes"], provider=provider, lang=lang)
             _step_done("generate_notes")
         except Exception as exc:
             logger.error("  Note generation failed: %s", exc)
@@ -331,6 +333,7 @@ def process_inbox(
     project: str | None = None,
     force: bool = False,
     provider: str | None = None,
+    lang: str | None = None,
     manifest: dict | None = None,
     manifest_path: Path | None = None,
 ) -> list[dict]:
@@ -375,6 +378,7 @@ def process_inbox(
                 project=project,
                 force=force,
                 provider=provider,
+                lang=lang,
                 manifest=manifest,
                 manifest_path=manifest_path,
             )
@@ -409,6 +413,7 @@ def _make_watcher_handler(
     meeting_type: str,
     project: str | None,
     provider: str | None,
+    lang: str | None,
     manifest: dict,
     manifest_path: Path,
 ):
@@ -442,6 +447,7 @@ def _make_watcher_handler(
                     project=project,
                     force=False,
                     provider=provider,
+                    lang=lang,
                     manifest=manifest,
                     manifest_path=manifest_path,
                 )
@@ -459,6 +465,7 @@ def run_watcher(
     meeting_type: str = "Online",
     project: str | None = None,
     provider: str | None = None,
+    lang: str | None = None,
     manifest: dict,
     manifest_path: Path,
 ) -> None:
@@ -471,6 +478,7 @@ def run_watcher(
         meeting_type=meeting_type,
         project=project,
         provider=provider,
+        lang=lang,
         manifest=manifest,
         manifest_path=manifest_path,
     )
@@ -528,6 +536,10 @@ def main() -> None:
         help="LLM provider for note generation (overrides config). Default: openai",
     )
     parser.add_argument(
+        "--lang", default=None, choices=["en", "zh", "bilingual"],
+        help="Output language for notes (overrides config). zh = Simplified Chinese.",
+    )
+    parser.add_argument(
         "--status", action="store_true",
         help="Print processing history manifest and exit."
     )
@@ -569,6 +581,7 @@ def main() -> None:
             meeting_type=args.type,
             project=args.project,
             provider=args.provider,
+            lang=args.lang,
             manifest=manifest,
             manifest_path=manifest_path,
         )
@@ -586,6 +599,7 @@ def main() -> None:
             project=args.project,
             force=args.force,
             provider=args.provider,
+            lang=args.lang,
             manifest=manifest,
             manifest_path=manifest_path,
         )
@@ -597,6 +611,7 @@ def main() -> None:
             project=args.project,
             force=args.force,
             provider=args.provider,
+            lang=args.lang,
             manifest=manifest,
             manifest_path=manifest_path,
         )
