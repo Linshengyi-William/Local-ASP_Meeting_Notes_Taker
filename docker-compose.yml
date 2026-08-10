@@ -57,10 +57,15 @@ services:
       #    and rebuilds — you won't re-download it every time.
       - whisper_cache:/root/.cache/huggingface
 
-      # 3. (Optional) Override config without rebuilding the image
-      #    Uncomment this line if you want to edit config/config.yaml on your
-      #    host and have the container pick up changes immediately.
-      # - ./config:/app/config
+      # 3. config/ — settings and your project glossary
+      #    Mounted (not just baked into the image) so that edits to
+      #    config.yaml and context.md take effect on the next run without a
+      #    rebuild. Correcting a misheard name should never require
+      #    "docker compose build".
+      #
+      #    NOTE: src/ is still baked into the image, so changes to the Python
+      #    code DO require a rebuild.
+      - ./config:/app/config
 
     # ── GPU support ───────────────────────────────────────────────────────────
     # This block tells Docker to pass your NVIDIA GPU through to the container.
@@ -75,13 +80,13 @@ services:
     # If you DON'T have a GPU or haven't done the above setup yet:
     #   Comment out the entire "deploy:" block below.
     #   The pipeline will still work — just slower (CPU inference).
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all          # use all available GPUs (usually just 1)
-    #           capabilities: [gpu]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all          # use all available GPUs (usually just 1)
+              capabilities: [gpu]
 
 # =============================================================================
 # Named volumes

@@ -192,6 +192,30 @@ Three things control this, and they scale automatically with meeting length:
 
 If a meeting still feels under-covered, raise `max_tokens_cap` first.
 
+### Teaching it about your organisation
+
+Some things a single recording can never reveal — that your colleague spells it
+**Marco** and not Marko, or that you have one Platform team rather than separate dev and
+testing teams. Speech-to-text also reliably mangles names and in-house jargon.
+
+Put those facts in **[`config/context.md`](config/context.md)** once and they
+apply to every future meeting. The file is injected into each run and explicitly
+outranks the transcript, so the model silently corrects rather than repeating the
+error. It covers:
+
+- **People** — correct spellings plus the variants you've seen misheard
+- **Teams and structure** — including what does *not* exist, which is what stops
+  invented owners like "Testing Team" appearing in action items
+- **Systems and terminology** — your acronyms and internal product names
+- **Known transcription errors** — e.g. `ohms` → OMS, `吉拉` → Jira
+
+For names, also add the term to `transcription.initial_prompt` in
+`config.yaml`. That biases Whisper itself, fixing the error at the source
+instead of correcting it afterwards.
+
+`config/` is mounted into the container, so **edits here take effect on the next
+run without a rebuild**. (Changes to `src/` still need `docker compose build`.)
+
 ---
 
 ## Project structure
