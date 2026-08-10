@@ -48,6 +48,11 @@ Follow these rules strictly:
 7. BE FAITHFUL. Never invent, infer, or embellish anything that was not
    actually said. If something was genuinely unclear or inaudible in the
    transcript, say so rather than guessing.
+8. NEVER INVENT AN OWNER. For action items, use a person's name only if the
+   transcript actually identifies who took the task on. If nobody was named,
+   write "Unassigned" — do not fabricate a plausible-sounding team or role
+   (a transcript that mentions "testing" is discussing a test environment,
+   not a testing team). Inventing owners is worse than leaving them blank.
 """
 
 _SYSTEM_EN = f"""\
@@ -76,6 +81,10 @@ _EXHAUSTIVE_RULES_ZH = """\
    太短就是失败；详尽冗长才是正确的。会议越长，记录就必须越长。
 7. **忠实于原文。** 不要编造、推测或美化任何没有真正说过的内容。
    如果转录中某处确实含糊不清或听不清楚，就如实说明，不要猜测。
+8. **绝不编造负责人。** 待办事项的负责人只能填写转录中明确认领该任务的人。
+   如果没有人被点名，就写"待定"——不要编造一个听起来合理的团队或职位
+   （转录里提到"testing"通常指测试环境，不是某个测试团队）。
+   编造负责人比留空更糟糕。
 """
 
 _SYSTEM_ZH = f"""\
@@ -172,6 +181,54 @@ Please extract and return a JSON object with the following keys:
 
 Return ONLY valid JSON with these keys and nothing else.
 """
+
+
+# ── Project context ───────────────────────────────────────────────────────────
+
+_CONTEXT_PREAMBLE = """\
+
+---STANDING PROJECT CONTEXT START---
+The following is verified background about this organisation, supplied by the
+user. It OUTRANKS the transcript wherever the two conflict, because
+speech-to-text mishears names and jargon.
+
+Apply it silently: correct misspelled names and garbled terms to their proper
+forms, and never contradict the organisational facts stated here (for example,
+do not invent a team that this context says does not exist). Do not mention
+this context, quote it, or add a note explaining that you corrected something —
+just produce notes that are already correct.
+
+{context}
+---STANDING PROJECT CONTEXT END---
+"""
+
+
+def _load_project_context(cfg: dict, base_dir: Optional[Path] = None) -> str:
+    """
+    Read the user-maintained glossary (config/context.md by default).
+
+    Returns "" when the file is absent or empty, in which case the prompt is
+    built exactly as it was before this feature existed.
+    """
+    rel = cfg.get("llm", {}).get("context_file", "config/context.md")
+    if not rel:
+        return ""
+
+    path = Path(rel)
+    if not path.is_absolute():
+        base_dir = base_dir or Path(__file__).parent.parent
+        path = base_dir / rel
+
+    if not path.exists():
+        logger.debug("No project context file at %s — skipping.", path)
+        return ""
+
+    text = path.read_text(encoding="utf-8").strip()
+    if not text:
+        return ""
+
+    logger.info("Loaded project context from %s (%d chars).", path, len(text))
+    return _CONTEXT_PREAMBLE.format(context=text)
 
 
 # ── Output sizing ─────────────────────────────────────────────────────────────
@@ -414,7 +471,7 @@ def generate_notes(
     if provider not in _PROVIDERS:
         raise ValueError(f"Unknown provider '{provider}'. Choose: {list(_PROVIDERS)}")
 
-    system_prompt = _SYSTEM_MAP.get(output_lang, _SYSTEM_BILINGUAL)
+    system_prompt = _SYSTEM_MAP.get(output_lang, _SYSTEM_BILINGUAL) + _load_project_context(cfg)
     user_message  = _USER_TEMPLATE.format(
         transcript=transcript_text,
         length_directive=_length_directive(transcript_text),

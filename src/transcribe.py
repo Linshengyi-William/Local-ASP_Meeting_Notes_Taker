@@ -74,6 +74,10 @@ def transcribe(
     beam_size = int(tcfg.get("beam_size", 5))
     vad_filter = bool(tcfg.get("vad_filter", True))
     word_timestamps = bool(tcfg.get("word_timestamps", False))
+    # Biases the decoder toward this vocabulary — the cheapest way to stop
+    # names and jargon being mangled ("Kris" heard as "Chris"). Whisper caps
+    # this at 224 tokens, so keep it to a terse list of proper nouns.
+    initial_prompt = tcfg.get("initial_prompt") or None
 
     device, compute_type = _resolve_device_and_compute(device, compute_type)
 
@@ -84,12 +88,16 @@ def transcribe(
     model = WhisperModel(model_size, device=device, compute_type=compute_type)
 
     logger.info("Transcribing: %s", audio_path.name)
+    if initial_prompt:
+        logger.info("Biasing transcription with vocabulary prompt (%d chars).", len(initial_prompt))
+
     segments_iter, info = model.transcribe(
         str(audio_path),
         language=language,
         beam_size=beam_size,
         vad_filter=vad_filter,
         word_timestamps=word_timestamps,
+        initial_prompt=initial_prompt,
     )
 
     detected_lang = info.language
