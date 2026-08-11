@@ -59,6 +59,30 @@ right-hand column as what was actually meant.
 
 ---
 
+## Automatic corrections
+
+Unlike everything above — which is guidance the model may apply imperfectly —
+this table is applied **literally and deterministically** to the finished notes,
+including inside direct quotes. Use it for corrections that must never slip
+through.
+
+Matching is case-sensitive. ASCII terms match whole words only, so `WNS` will
+not corrupt `WNSX`; CJK terms match anywhere.
+
+| Replace | With |
+|---|---|
+| Chris | Kris |
+| Cris | Kris |
+| 克里斯 | Kris |
+| WNS | WMS |
+| vinder | vendor |
+| Vinder | Vendor |
+| assass | access |
+| Testing Team | IT team |
+| testing team | IT team |
+
+---
+
 ## How to extend this file
 
 - Add a row whenever the notes misname a person, team, or system.
