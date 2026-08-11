@@ -4,6 +4,7 @@ paths:
   transcripts_raw: meetings/transcripts/raw
   transcripts_clean: meetings/transcripts/clean
   notes: meetings/notes                  # local JSON backup of generated notes
+  manifest: meetings/processed.json      # processing history (status, notion URLs, errors)
 
 # ─── Transcription (faster-whisper) ───────────────────────────────────────────
 transcription:
@@ -11,6 +12,16 @@ transcription:
   device: auto                           # auto | cuda | cpu
   compute_type: auto                     # auto | float16 | int8 | int8_float16
   language: null                         # null = auto-detect; or "zh" / "en" for forced lang
+  # Biases the decoder toward your team's proper nouns so they aren't misheard
+  # (this is what stops "Marco" becoming "Marko"). Whisper truncates this at
+  # ~224 tokens, so keep it a terse list of names, systems, and acronyms —
+  # not prose. Add a term here as well as to config/context.md when speech-to-
+  # text keeps mangling it, since this fixes the error at the source.
+  initial_prompt: >-
+    Marco, Yuki, Shen Hao, Priya, Lena.
+    OMS (Order Management System), staging, hotfix, on-call, Jira,
+    sprint, release, rollback, code review, deploy, system role,
+    project role, permissions, PTO, overtime, HR, admin, QR code, AWS.
   beam_size: 5
   vad_filter: true                       # Voice Activity Detection — trims silence
   word_timestamps: false                 # set true if you want per-word timestamps
@@ -25,17 +36,45 @@ cleaning:
 llm:
   # Default provider. Override at runtime with --provider anthropic
   provider: openai                        # openai | anthropic
-  model: gpt-4o                           # openai: gpt-4o / gpt-4o-mini  |  anthropic: claude-sonnet-4-6
-  max_tokens: 4096
+  model: gpt-5-mini                       # openai: gpt-5-mini / gpt-5 / gpt-4o  |  anthropic: claude-sonnet-4-6
+  # Standing knowledge about your org — correct name spellings, team structure,
+  # system glossary, known transcription errors. Injected into every run and
+  # treated as outranking the transcript. Set to "" to disable.
+  # This is the place to record corrections so they apply to all future meetings.
+  context_file: config/context.md
+  # Output token budget. On gpt-5 / o-series this is sent as max_completion_tokens
+  # and ALSO covers the model's internal reasoning tokens.
+  # The budget scales automatically with transcript length between these two
+  # values, so long meetings get room for exhaustive notes. It is only a ceiling
+  # — you are billed for tokens actually generated, so a high cap is not wasteful.
+  max_tokens: 16000                       # floor: never allow less than this
+  max_tokens_cap: 64000                   # ceiling for very long meetings
+  # Ignored on gpt-5 / o-series models (they only accept the default value).
+  # Still applied to gpt-4o and to Anthropic models.
   temperature: 0.3
+  # gpt-5 / o-series only.
+  #   reasoning_effort: minimal | low | medium | high  (unset = model default)
+  #   verbosity:        low | medium | high            (defaults to high)
+  # verbosity=high is what makes the model write long, detailed notes.
+  # Lower it to "medium" if the notes end up more verbose than you want.
+  verbosity: high
+  # Uncomment to make the model think harder about structuring long meetings.
+  # Costs more and is slower, but improves coverage of complex discussions.
+  # reasoning_effort: high
   # Output language for the notes. Options: "en" | "zh" | "bilingual"
+  #   en        = English only
+  #   zh        = Simplified Chinese only (简体中文)
+  #   bilingual = each section in English then Chinese
+  # Override per-run with the pipeline's --lang flag.
   output_language: bilingual
+  max_retries: 3                          # retry API calls on rate-limit / connection errors
 
 # ─── Notion ───────────────────────────────────────────────────────────────────
 notion:
   # The ID of the database where meeting pages will be created.
   # Find it in the Notion URL: notion.so/<workspace>/<DATABASE_ID>?v=...
-  database_id: ""               
+  database_id: ""
+  max_retries: 3                          # retry Notion API calls on 429 / 500 / 503
   # Property names in your database — change if yours differ
   properties:
     title: Title

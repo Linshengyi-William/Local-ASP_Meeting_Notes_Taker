@@ -4,8 +4,11 @@ notion_writer.py — Write structured meeting notes to a Notion database page.
 Expects the notes dict produced by generate_notes.py and creates a new page
 in the configured Notion database with:
   - Database properties: Title, Date, Project, Meeting Type, Status, Tags
-  - Page content blocks: Summary, Key Points, Decisions, Action Items,
-    Open Questions, Risks, full Transcript (collapsed toggle)
+  - Page content blocks: TL;DR, Summary, Detailed Discussion, Key Points,
+    Decisions, Action Items, Open Questions, Risks, full Transcript
+    (collapsed toggle)
+
+Pages longer than Notion's 100-block request limit are created in batches.
 """
 
 from __future__ import annotations
@@ -22,17 +25,45 @@ logger = logging.getLogger(__name__)
 # Maximum characters per Notion rich text block
 _NOTION_MAX_BLOCK_TEXT = 2000
 
+# Notion rejects requests carrying more than 100 child blocks, so pages longer
+# than that must be created with the first batch and extended with the rest.
+_NOTION_MAX_BLOCKS_PER_REQUEST = 100
+
 
 # ── Block builders ────────────────────────────────────────────────────────────
+
+# A block may carry many rich-text items, each capped at 2000 characters. The
+# detailed-notes prompt deliberately produces long bullets, so text is SPLIT
+# across items rather than truncated — truncating would silently discard the
+# detail the whole feature exists to capture.
+_NOTION_MAX_RICH_TEXT_ITEMS = 100
+
+
+def _rich_text(text: str) -> list[dict]:
+    """Split *text* into Notion rich-text items without losing content."""
+    text = str(text)
+    if not text:
+        return [{"type": "text", "text": {"content": ""}}]
+
+    items = [
+        {"type": "text", "text": {"content": text[i: i + _NOTION_MAX_BLOCK_TEXT]}}
+        for i in range(0, len(text), _NOTION_MAX_BLOCK_TEXT)
+    ]
+    if len(items) > _NOTION_MAX_RICH_TEXT_ITEMS:
+        logger.warning(
+            "Text of %d chars exceeds a single Notion block; truncating to %d chars.",
+            len(text), _NOTION_MAX_BLOCK_TEXT * _NOTION_MAX_RICH_TEXT_ITEMS,
+        )
+        items = items[:_NOTION_MAX_RICH_TEXT_ITEMS]
+    return items
+
 
 def _heading(text: str, level: int = 2) -> dict:
     key = f"heading_{level}"
     return {
         "object": "block",
         "type": key,
-        key: {
-            "rich_text": [{"type": "text", "text": {"content": text}}]
-        },
+        key: {"rich_text": _rich_text(text)},
     }
 
 
@@ -52,25 +83,31 @@ def _paragraph(text: str) -> list[dict]:
 
 
 def _bullet(text: str) -> dict:
-    # Truncate individual bullet items to Notion limit
-    text = text[:_NOTION_MAX_BLOCK_TEXT]
     return {
         "object": "block",
         "type": "bulleted_list_item",
-        "bulleted_list_item": {
-            "rich_text": [{"type": "text", "text": {"content": text}}]
-        },
+        "bulleted_list_item": {"rich_text": _rich_text(text)},
     }
 
 
 def _todo(text: str, checked: bool = False) -> dict:
-    text = text[:_NOTION_MAX_BLOCK_TEXT]
     return {
         "object": "block",
         "type": "to_do",
         "to_do": {
-            "rich_text": [{"type": "text", "text": {"content": text}}],
+            "rich_text": _rich_text(text),
             "checked": checked,
+        },
+    }
+
+
+def _callout(text: str, emoji: str = "💡") -> dict:
+    return {
+        "object": "block",
+        "type": "callout",
+        "callout": {
+            "rich_text": _rich_text(text),
+            "icon": {"type": "emoji", "emoji": emoji},
         },
     }
 
@@ -84,40 +121,90 @@ def _toggle(title: str, children: list[dict]) -> dict:
         "object": "block",
         "type": "toggle",
         "toggle": {
-            "rich_text": [{"type": "text", "text": {"content": title}}],
+            "rich_text": _rich_text(title),
             "children": children,
         },
     }
+
+
+# ── Section headers (localized by output language) ────────────────────────────
+# Each key maps to {en, zh, bilingual} heading text. bilingual is the default
+# and keeps the original "English / 中文" style.
+_SECTION_HEADERS = {
+    "summary":        {"en": "Summary",                "zh": "摘要",        "bilingual": "Summary / 摘要"},
+    "discussion":     {"en": "Detailed Discussion",    "zh": "详细讨论记录", "bilingual": "Detailed Discussion / 详细讨论记录"},
+    "key_points":     {"en": "Key Discussion Points",  "zh": "主要讨论点",   "bilingual": "Key Discussion Points / 主要讨论点"},
+    "decisions":      {"en": "Decisions Made",         "zh": "决策",        "bilingual": "Decisions Made / 决策"},
+    "action_items":   {"en": "Action Items",           "zh": "待办事项",     "bilingual": "Action Items / 待办事项"},
+    "open_questions": {"en": "Open Questions",         "zh": "待解决问题",   "bilingual": "Open Questions / 待解决问题"},
+    "risks":          {"en": "Risks & Follow-ups",     "zh": "风险与跟进",   "bilingual": "Risks & Follow-ups / 风险与跟进"},
+    "transcript":     {"en": "Full Transcript (click to expand)",
+                       "zh": "完整转录（点击展开）",
+                       "bilingual": "Full Transcript / 原始转录 (click to expand)"},
+}
+
+
+def _section_header(key: str, lang: str) -> str:
+    variants = _SECTION_HEADERS[key]
+    return variants.get(lang, variants["bilingual"])
 
 
 # ── Notes → Notion blocks ─────────────────────────────────────────────────────
 
 def _build_content_blocks(notes: dict, transcript_text: Optional[str]) -> list[dict]:
     blocks: list[dict] = []
+    lang = (notes.get("_language") or "bilingual").lower()
+
+    def header(key: str) -> str:
+        return _section_header(key, lang)
+
+    # TL;DR callout — always first if present
+    if notes.get("tldr"):
+        blocks.append(_callout(notes["tldr"], emoji="⚡"))
+        blocks.append(_divider())
 
     # Summary
     if notes.get("summary"):
-        blocks.append(_heading("Summary / 摘要", level=2))
+        blocks.append(_heading(header("summary"), level=2))
         blocks.extend(_paragraph(notes["summary"]))
+        blocks.append(_divider())
+
+    # Detailed Discussion — the chronological walkthrough of the meeting.
+    # Each topic becomes an H3 with its detail points beneath it.
+    if notes.get("discussion"):
+        blocks.append(_heading(header("discussion"), level=2))
+        for section in notes["discussion"]:
+            if isinstance(section, dict):
+                topic = str(section.get("topic", "")).strip()
+                details = section.get("details") or []
+                if topic:
+                    blocks.append(_heading(topic, level=3))
+                if isinstance(details, str):
+                    details = [details]
+                for detail in details:
+                    blocks.append(_bullet(str(detail)))
+            else:
+                # Model returned a flat list of strings instead of objects
+                blocks.append(_bullet(str(section)))
         blocks.append(_divider())
 
     # Key Discussion Points
     if notes.get("key_points"):
-        blocks.append(_heading("Key Discussion Points / 主要讨论点", level=2))
+        blocks.append(_heading(header("key_points"), level=2))
         for item in notes["key_points"]:
             blocks.append(_bullet(str(item)))
         blocks.append(_divider())
 
     # Decisions
     if notes.get("decisions"):
-        blocks.append(_heading("Decisions Made / 决策", level=2))
+        blocks.append(_heading(header("decisions"), level=2))
         for item in notes["decisions"]:
             blocks.append(_bullet(str(item)))
         blocks.append(_divider())
 
     # Action Items
     if notes.get("action_items"):
-        blocks.append(_heading("Action Items / 待办事项", level=2))
+        blocks.append(_heading(header("action_items"), level=2))
         for ai in notes["action_items"]:
             if isinstance(ai, dict):
                 owner = ai.get("owner", "—")
@@ -133,28 +220,35 @@ def _build_content_blocks(notes: dict, transcript_text: Optional[str]) -> list[d
 
     # Open Questions
     if notes.get("open_questions"):
-        blocks.append(_heading("Open Questions / 待解决问题", level=2))
+        blocks.append(_heading(header("open_questions"), level=2))
         for item in notes["open_questions"]:
             blocks.append(_bullet(str(item)))
         blocks.append(_divider())
 
     # Risks
     if notes.get("risks"):
-        blocks.append(_heading("Risks & Follow-ups / 风险与跟进", level=2))
+        blocks.append(_heading(header("risks"), level=2))
         for item in notes["risks"]:
             blocks.append(_bullet(str(item)))
         blocks.append(_divider())
 
     # Full transcript (collapsed toggle so it doesn't dominate the page)
     if transcript_text:
-        transcript_chunks = [
-            _paragraph(transcript_text[i: i + _NOTION_MAX_BLOCK_TEXT])
+        flat_chunks = [
+            block
             for i in range(0, len(transcript_text), _NOTION_MAX_BLOCK_TEXT)
+            for block in _paragraph(transcript_text[i: i + _NOTION_MAX_BLOCK_TEXT])
         ]
-        flat_chunks = [block for sublist in transcript_chunks for block in sublist]
-        blocks.append(
-            _toggle("Full Transcript / 原始转录 (click to expand)", flat_chunks)
-        )
+        # A toggle's children are also capped at 100, so a very long transcript
+        # is split across several toggles rather than being rejected.
+        title = header("transcript")
+        parts = [
+            flat_chunks[i: i + _NOTION_MAX_BLOCKS_PER_REQUEST]
+            for i in range(0, len(flat_chunks), _NOTION_MAX_BLOCKS_PER_REQUEST)
+        ]
+        for idx, part in enumerate(parts, start=1):
+            label = title if len(parts) == 1 else f"{title} — {idx}/{len(parts)}"
+            blocks.append(_toggle(label, part))
 
     return blocks
 
@@ -235,6 +329,8 @@ def write_to_notion(
             "NOTION_TOKEN is not set. Add it to your .env file."
         )
 
+    from utils import retry_with_backoff_predicate, _notion_is_retryable
+
     ncfg = cfg.get("notion", {})
     database_id = ncfg.get("database_id", "")
     if not database_id:
@@ -242,6 +338,7 @@ def write_to_notion(
             "notion.database_id is empty in config/config.yaml. "
             "Set it to the ID of your Notion meeting notes database."
         )
+    max_retries = int(ncfg.get("max_retries", 3))
 
     prop_names = ncfg.get("properties", {})
     if not meeting_date:
@@ -253,13 +350,58 @@ def write_to_notion(
     content_blocks = _build_content_blocks(notes, transcript_text)
 
     logger.info("Creating Notion page: '%s' ...", notes.get("title", "Meeting Notes"))
-    response = client.pages.create(
-        parent={"database_id": database_id},
-        properties=properties,
-        children=content_blocks,
+
+    # Detailed notes routinely exceed Notion's 100-block request limit, so send
+    # the first batch with the page itself and append the remainder.
+    first_batch = content_blocks[:_NOTION_MAX_BLOCKS_PER_REQUEST]
+    remaining = content_blocks[_NOTION_MAX_BLOCKS_PER_REQUEST:]
+
+    def _do_create():
+        return client.pages.create(
+            parent={"database_id": database_id},
+            properties=properties,
+            children=first_batch,
+        )
+
+    response = retry_with_backoff_predicate(
+        _do_create,
+        max_retries=max_retries,
+        base_delay=2.0,
+        is_retryable=_notion_is_retryable,
     )
 
+    page_id = response.get("id")
     page_url = response.get("url", "")
+
+    if remaining and page_id:
+        total_batches = -(-len(remaining) // _NOTION_MAX_BLOCKS_PER_REQUEST)
+        logger.info(
+            "Appending %d further block(s) in %d batch(es) ...",
+            len(remaining), total_batches,
+        )
+        for i in range(0, len(remaining), _NOTION_MAX_BLOCKS_PER_REQUEST):
+            batch = remaining[i: i + _NOTION_MAX_BLOCKS_PER_REQUEST]
+
+            def _do_append(batch=batch):
+                return client.blocks.children.append(block_id=page_id, children=batch)
+
+            try:
+                retry_with_backoff_predicate(
+                    _do_append,
+                    max_retries=max_retries,
+                    base_delay=2.0,
+                    is_retryable=_notion_is_retryable,
+                )
+            except Exception as exc:
+                # The page already exists at this point. Surfacing its URL in the
+                # error keeps the caller from creating a duplicate on the next
+                # run and lets the user find the partially-written page.
+                raise RuntimeError(
+                    f"Notion page was created but is INCOMPLETE — "
+                    f"batch {i // _NOTION_MAX_BLOCKS_PER_REQUEST + 1}/{total_batches} "
+                    f"failed to append: {exc}. Page: {page_url}"
+                ) from exc
+
     logger.info("Notion page created: %s", page_url)
     return page_url
 
