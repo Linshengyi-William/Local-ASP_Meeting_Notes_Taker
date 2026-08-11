@@ -2,7 +2,8 @@
 faster-whisper>=1.0.0
 
 # LLM — OpenAI (default) and Anthropic Claude (optional, use --provider anthropic)
-openai>=1.30.0
+# >=1.99.3 required for the gpt-5 family (max_completion_tokens, reasoning_effort, verbosity)
+openai>=1.99.3
 anthropic>=0.40.0
 
 # Notion API
@@ -12,3 +13,4 @@ notion-client>=2.2.0
 python-dotenv>=1.0.0
 pyyaml>=6.0
 tqdm>=4.66.0
+watchdog>=4.0.0

@@ -3,7 +3,7 @@
 Low-cost, fully local meeting processing pipeline for Chinese/English mixed meetings.
 
 ```
-Audio file  →  faster-whisper  →  clean transcript  →  Claude LLM  →  Notion page
+Audio file  →  faster-whisper  →  clean transcript  →  LLM (gpt-5-mini)  →  Notion page
 ```
 
 ---
@@ -12,7 +12,8 @@ Audio file  →  faster-whisper  →  clean transcript  →  Claude LLM  →  No
 
 - Python 3.10+
 - CUDA GPU recommended (works on CPU too, just slower)
-- An [Anthropic API key](https://console.anthropic.com/)
+- An [OpenAI API key](https://platform.openai.com/api-keys) — default provider
+- An [Anthropic API key](https://console.anthropic.com/) — only for `--provider anthropic`
 - A [Notion integration token](https://www.notion.so/my-integrations)
 
 ---
@@ -37,7 +38,8 @@ cp .env.example .env
 Edit `.env`:
 
 ```
-ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...   # optional — only for --provider anthropic
 NOTION_TOKEN=secret_...
 ```
 
@@ -96,6 +98,8 @@ python src/pipeline.py --file meetings/inbox/2026-04-07_project-sync.m4a
 | `--type`       | Online   | Meeting type: `Online` or `Offline`             |
 | `--project`    | —        | Project name tag written to Notion              |
 | `--force`      | off      | Re-run all steps even if outputs already exist  |
+| `--provider`   | openai   | LLM provider: `openai` or `anthropic`           |
+| `--lang`       | config   | Output language: `en`, `zh`, or `bilingual` (`zh` = Simplified Chinese) |
 | `--config`     | config/config.yaml | Path to config file                  |
 
 ### Example — offline meeting, specific project
@@ -106,6 +110,17 @@ python src/pipeline.py \
   --type Offline \
   --project "Product Redesign Q2"
 ```
+
+### Example — output notes in Simplified Chinese
+
+```bash
+python src/pipeline.py \
+  --file meetings/inbox/2026-04-07_project-sync.m4a \
+  --lang zh
+```
+
+The transcript can be in English, Chinese, or mixed — `--lang zh` makes the LLM
+produce the notes (and Notion section headers) entirely in Simplified Chinese.
 
 ### Test without Notion
 
@@ -148,12 +163,58 @@ transcription:
   language: null          # null = auto-detect; "zh" or "en" to force
 
 llm:
-  model: claude-sonnet-4-6
-  output_language: bilingual   # "en" | "zh" | "bilingual"
+  provider: openai             # openai | anthropic; override per-run with --provider
+  model: gpt-5-mini            # openai: gpt-5-mini / gpt-5 / gpt-4o | anthropic: claude-sonnet-4-6
+  max_tokens: 16000            # floor for the output budget (see "Note detail" below)
+  max_tokens_cap: 64000        # ceiling for very long meetings
+  temperature: 0.3             # ignored by gpt-5 / o-series (they only accept the default)
+  verbosity: high              # gpt-5 only — the main lever on how much detail you get
+  output_language: bilingual   # "en" | "zh" (Simplified Chinese) | "bilingual"; override per-run with --lang
 
 notion:
   database_id: ""         # required — paste your Notion DB ID here
 ```
+
+### Note detail
+
+Notes are written to be **exhaustive** — the goal is that you never need to
+re-read the transcript. Every Notion page includes a **Detailed Discussion**
+section: a chronological, topic-by-topic walkthrough of the meeting, so the
+later parts of a long recording get the same depth as the opening.
+
+Three things control this, and they scale automatically with meeting length:
+
+| Setting | Effect |
+|---|---|
+| `max_tokens` / `max_tokens_cap` | Output budget grows with transcript size (floor → cap). It's only a ceiling — you're billed for what's generated, so a high cap costs nothing on short meetings. |
+| `verbosity: high` | gpt-5's main length lever. Drop to `medium` if notes are more verbose than you want. |
+| `reasoning_effort: high` | Optional, commented out by default. Slower and pricier, but improves structure on complex discussions. |
+
+If a meeting still feels under-covered, raise `max_tokens_cap` first.
+
+### Teaching it about your organisation
+
+Some things a single recording can never reveal — that your colleague spells it
+**Kris** and not Chris, or that you have one IT team rather than separate dev and
+testing teams. Speech-to-text also reliably mangles names and in-house jargon.
+
+Put those facts in **[`config/context.md`](config/context.md)** once and they
+apply to every future meeting. The file is injected into each run and explicitly
+outranks the transcript, so the model silently corrects rather than repeating the
+error. It covers:
+
+- **People** — correct spellings plus the variants you've seen misheard
+- **Teams and structure** — including what does *not* exist, which is what stops
+  invented owners like "Testing Team" appearing in action items
+- **Systems and terminology** — your acronyms and internal product names
+- **Known transcription errors** — e.g. `WNS` → WMS, `vinder` → vendor
+
+For names, also add the term to `transcription.initial_prompt` in
+`config.yaml`. That biases Whisper itself, fixing the error at the source
+instead of correcting it afterwards.
+
+`config/` is mounted into the container, so **edits here take effect on the next
+run without a rebuild**. (Changes to `src/` still need `docker compose build`.)
 
 ---
 
