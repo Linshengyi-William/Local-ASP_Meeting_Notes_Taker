@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -17,6 +18,14 @@ logger = logging.getLogger(__name__)
 
 
 # ── Prompt templates ──────────────────────────────────────────────────────────
+
+_SIMPLIFIED_ONLY = """\
+SCRIPT REQUIREMENT: All Chinese you write MUST be Simplified Chinese (简体中文).
+The transcript often contains Traditional characters because the speech-to-text
+engine emits them inconsistently — convert them. Write 测试 not 測試, 资料 not
+資料, 权限 not 權限, 时钟 not 時鐘, 应该 not 應該, 问题 not 問題, 这个 not 這個.
+Traditional characters anywhere in your output are an error.
+"""
 
 _EXHAUSTIVE_RULES_EN = """\
 Your single overriding priority is EXHAUSTIVE COMPLETENESS. These notes are
@@ -90,8 +99,9 @@ _EXHAUSTIVE_RULES_ZH = """\
 _SYSTEM_ZH = f"""\
 你是一位专业的会议记录整理助手。根据提供的会议转录文本（可能包含中文、英文或混合内容），
 生成结构化的会议记录，并且**全部使用简体中文输出**。即使转录原文是英文或其他语言，
-也要翻译成简体中文；不要使用繁体字。
+也要翻译成简体中文。
 
+{_SIMPLIFIED_ONLY}
 {_EXHAUSTIVE_RULES_ZH}"""
 
 _SYSTEM_BILINGUAL = f"""\
@@ -99,6 +109,7 @@ You are an expert meeting notes writer. Given a meeting transcript (which may
 contain Chinese, English, or a mix of both), produce structured notes with
 each section written first in English then in Chinese (简体中文).
 
+{_SIMPLIFIED_ONLY}
 {_EXHAUSTIVE_RULES_EN}
 Both language versions must be equally detailed — never write a full English
 section and then a short Chinese gloss of it, or vice versa.
@@ -203,12 +214,12 @@ just produce notes that are already correct.
 """
 
 
-def _load_project_context(cfg: dict, base_dir: Optional[Path] = None) -> str:
+def _read_context_file(cfg: dict, base_dir: Optional[Path] = None) -> str:
     """
     Read the user-maintained glossary (config/context.md by default).
 
-    Returns "" when the file is absent or empty, in which case the prompt is
-    built exactly as it was before this feature existed.
+    Returns "" when the file is disabled, absent, or empty — in which case the
+    pipeline behaves exactly as it did before this feature existed.
     """
     rel = cfg.get("llm", {}).get("context_file", "config/context.md")
     if not rel:
@@ -223,12 +234,92 @@ def _load_project_context(cfg: dict, base_dir: Optional[Path] = None) -> str:
         logger.debug("No project context file at %s — skipping.", path)
         return ""
 
-    text = path.read_text(encoding="utf-8").strip()
+    return path.read_text(encoding="utf-8").strip()
+
+
+def _load_project_context(cfg: dict, base_dir: Optional[Path] = None) -> str:
+    """Wrap the glossary in the prompt preamble, or return "" if there is none."""
+    text = _read_context_file(cfg, base_dir)
     if not text:
         return ""
 
-    logger.info("Loaded project context from %s (%d chars).", path, len(text))
+    logger.info("Loaded project context (%d chars).", len(text))
     return _CONTEXT_PREAMBLE.format(context=text)
+
+
+# ── Deterministic corrections ─────────────────────────────────────────────────
+
+_CORRECTIONS_HEADING = "## Automatic corrections"
+
+
+def _parse_corrections(context_md: str) -> list[tuple[str, str]]:
+    """
+    Pull the "Automatic corrections" markdown table out of the context file.
+
+    Prompt instructions alone are not reliable — the model will quote the
+    transcript verbatim and reproduce a misspelled name inside the quote. These
+    pairs are applied literally afterwards so such cases cannot slip through.
+    """
+    if _CORRECTIONS_HEADING not in context_md:
+        return []
+
+    section = context_md.split(_CORRECTIONS_HEADING, 1)[1]
+    # Stop at the next top-level heading
+    section = re.split(r"^## ", section, maxsplit=1, flags=re.MULTILINE)[0]
+
+    pairs: list[tuple[str, str]] = []
+    for line in section.splitlines():
+        line = line.strip()
+        if not line.startswith("|") or line.count("|") < 3:
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if len(cells) < 2:
+            continue
+        wrong, right = cells[0], cells[1]
+        # Skip the header row and the |---|---| separator
+        if not wrong or not right or set(wrong) <= set("-: ") or wrong == "Replace":
+            continue
+        pairs.append((wrong, right))
+    return pairs
+
+
+def _apply_corrections(notes: dict, pairs: list[tuple[str, str]]) -> int:
+    """
+    Rewrite every string in *notes* using *pairs*. Returns the number of
+    substitutions made. ASCII terms are matched on word boundaries so short
+    acronyms can't corrupt longer words; CJK has no word boundaries, so those
+    terms are matched literally.
+    """
+    if not pairs:
+        return 0
+
+    compiled = []
+    for wrong, right in pairs:
+        if re.fullmatch(r"[A-Za-z0-9 ]+", wrong):
+            pattern = re.compile(rf"\b{re.escape(wrong)}\b")
+        else:
+            pattern = re.compile(re.escape(wrong))
+        compiled.append((pattern, right))
+
+    count = 0
+
+    def fix(value):
+        nonlocal count
+        if isinstance(value, str):
+            for pattern, right in compiled:
+                value, n = pattern.subn(right, value)
+                count += n
+            return value
+        if isinstance(value, list):
+            return [fix(v) for v in value]
+        if isinstance(value, dict):
+            return {k: fix(v) for k, v in value.items()}
+        return value
+
+    for key in list(notes):
+        if not key.startswith("_"):
+            notes[key] = fix(notes[key])
+    return count
 
 
 # ── Output sizing ─────────────────────────────────────────────────────────────
@@ -508,6 +599,13 @@ def generate_notes(
     except json.JSONDecodeError as exc:
         logger.error("LLM returned non-JSON response:\n%s", raw_response)
         raise ValueError("LLM did not return valid JSON.") from exc
+
+    # Belt-and-braces: the prompt asks the model to correct names, but it will
+    # still reproduce a misspelling when quoting the transcript verbatim.
+    context_md = _read_context_file(cfg)
+    applied = _apply_corrections(notes, _parse_corrections(context_md))
+    if applied:
+        logger.info("Applied %d deterministic correction(s) from the context file.", applied)
 
     notes["_source"]   = transcript_path.name
     notes["_provider"] = provider
