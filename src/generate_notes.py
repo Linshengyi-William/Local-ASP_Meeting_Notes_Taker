@@ -293,23 +293,29 @@ def _apply_corrections(notes: dict, pairs: list[tuple[str, str]]) -> int:
     if not pairs:
         return 0
 
-    compiled = []
-    for wrong, right in pairs:
-        if re.fullmatch(r"[A-Za-z0-9 ]+", wrong):
-            pattern = re.compile(rf"\b{re.escape(wrong)}\b")
-        else:
-            pattern = re.compile(re.escape(wrong))
-        compiled.append((pattern, right))
+    # One alternation applied in a single pass, longest pattern first. Applying
+    # each pair in sequence would let one rule rewrite another rule's output.
+    ordered = sorted(pairs, key=lambda p: len(p[0]), reverse=True)
+    lookup = {wrong: right for wrong, right in ordered}
+    alternatives = []
+    for wrong, _ in ordered:
+        escaped = re.escape(wrong)
+        # \b is meaningless around CJK, so only ASCII terms get word boundaries.
+        alternatives.append(
+            rf"\b{escaped}\b" if re.fullmatch(r"[A-Za-z0-9 ]+", wrong) else escaped
+        )
+    combined = re.compile("|".join(alternatives))
 
     count = 0
 
     def fix(value):
         nonlocal count
         if isinstance(value, str):
-            for pattern, right in compiled:
-                value, n = pattern.subn(right, value)
-                count += n
-            return value
+            def _sub(match):
+                nonlocal count
+                count += 1
+                return lookup[match.group(0)]
+            return combined.sub(_sub, value)
         if isinstance(value, list):
             return [fix(v) for v in value]
         if isinstance(value, dict):
@@ -367,6 +373,25 @@ def _length_directive(transcript_text: str) -> str:
         f"\nThe transcript above is approximately {tokens:,} tokens long. "
         f"{expectation}\n"
     )
+
+
+# Hard per-model output ceilings. Asking for more is a non-retryable 400, so the
+# adaptive budget must be clamped to whatever the configured model can actually
+# emit. gpt-5 / o-series allow far more than we ever request.
+_MODEL_OUTPUT_LIMITS = {
+    "gpt-4o":      16384,
+    "gpt-4o-mini": 16384,
+    "gpt-4-turbo":  4096,
+    "gpt-4":        8192,
+    "gpt-3.5":      4096,
+}
+
+
+def _model_output_limit(model: str) -> Optional[int]:
+    for prefix, limit in _MODEL_OUTPUT_LIMITS.items():
+        if model.startswith(prefix):
+            return limit
+    return None
 
 
 def _adaptive_max_tokens(transcript_text: str, floor: int, cap: int) -> int:
@@ -550,13 +575,20 @@ def generate_notes(
     provider    = (provider or lcfg.get("provider", "openai")).lower()
     model       = _resolve_model(provider, lcfg.get("model", _DEFAULT_MODELS[provider]))
     temperature = float(lcfg.get("temperature", 0.3))
-    output_lang = (lang or lcfg.get("output_language", "bilingual")).lower()
+    # "or" rather than a dict default: an explicit "output_language:" in YAML
+    # parses as None, which would blow up on .lower().
+    output_lang = (lang or lcfg.get("output_language") or "bilingual").lower()
     max_retries = int(lcfg.get("max_retries", 3))
+
+    cap = int(lcfg.get("max_tokens_cap", 64000))
+    model_limit = _model_output_limit(model)
+    if model_limit is not None:
+        cap = min(cap, model_limit)
 
     max_tokens = _adaptive_max_tokens(
         transcript_text,
-        floor=int(lcfg.get("max_tokens", 16000)),
-        cap=int(lcfg.get("max_tokens_cap", 64000)),
+        floor=min(int(lcfg.get("max_tokens", 16000)), cap),
+        cap=cap,
     )
 
     if provider not in _PROVIDERS:

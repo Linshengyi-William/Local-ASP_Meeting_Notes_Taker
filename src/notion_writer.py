@@ -32,14 +32,38 @@ _NOTION_MAX_BLOCKS_PER_REQUEST = 100
 
 # ── Block builders ────────────────────────────────────────────────────────────
 
+# A block may carry many rich-text items, each capped at 2000 characters. The
+# detailed-notes prompt deliberately produces long bullets, so text is SPLIT
+# across items rather than truncated — truncating would silently discard the
+# detail the whole feature exists to capture.
+_NOTION_MAX_RICH_TEXT_ITEMS = 100
+
+
+def _rich_text(text: str) -> list[dict]:
+    """Split *text* into Notion rich-text items without losing content."""
+    text = str(text)
+    if not text:
+        return [{"type": "text", "text": {"content": ""}}]
+
+    items = [
+        {"type": "text", "text": {"content": text[i: i + _NOTION_MAX_BLOCK_TEXT]}}
+        for i in range(0, len(text), _NOTION_MAX_BLOCK_TEXT)
+    ]
+    if len(items) > _NOTION_MAX_RICH_TEXT_ITEMS:
+        logger.warning(
+            "Text of %d chars exceeds a single Notion block; truncating to %d chars.",
+            len(text), _NOTION_MAX_BLOCK_TEXT * _NOTION_MAX_RICH_TEXT_ITEMS,
+        )
+        items = items[:_NOTION_MAX_RICH_TEXT_ITEMS]
+    return items
+
+
 def _heading(text: str, level: int = 2) -> dict:
     key = f"heading_{level}"
     return {
         "object": "block",
         "type": key,
-        key: {
-            "rich_text": [{"type": "text", "text": {"content": text}}]
-        },
+        key: {"rich_text": _rich_text(text)},
     }
 
 
@@ -59,36 +83,30 @@ def _paragraph(text: str) -> list[dict]:
 
 
 def _bullet(text: str) -> dict:
-    # Truncate individual bullet items to Notion limit
-    text = text[:_NOTION_MAX_BLOCK_TEXT]
     return {
         "object": "block",
         "type": "bulleted_list_item",
-        "bulleted_list_item": {
-            "rich_text": [{"type": "text", "text": {"content": text}}]
-        },
+        "bulleted_list_item": {"rich_text": _rich_text(text)},
     }
 
 
 def _todo(text: str, checked: bool = False) -> dict:
-    text = text[:_NOTION_MAX_BLOCK_TEXT]
     return {
         "object": "block",
         "type": "to_do",
         "to_do": {
-            "rich_text": [{"type": "text", "text": {"content": text}}],
+            "rich_text": _rich_text(text),
             "checked": checked,
         },
     }
 
 
 def _callout(text: str, emoji: str = "💡") -> dict:
-    text = text[:_NOTION_MAX_BLOCK_TEXT]
     return {
         "object": "block",
         "type": "callout",
         "callout": {
-            "rich_text": [{"type": "text", "text": {"content": text}}],
+            "rich_text": _rich_text(text),
             "icon": {"type": "emoji", "emoji": emoji},
         },
     }
@@ -103,7 +121,7 @@ def _toggle(title: str, children: list[dict]) -> dict:
         "object": "block",
         "type": "toggle",
         "toggle": {
-            "rich_text": [{"type": "text", "text": {"content": title}}],
+            "rich_text": _rich_text(title),
             "children": children,
         },
     }
@@ -353,6 +371,8 @@ def write_to_notion(
     )
 
     page_id = response.get("id")
+    page_url = response.get("url", "")
+
     if remaining and page_id:
         total_batches = -(-len(remaining) // _NOTION_MAX_BLOCKS_PER_REQUEST)
         logger.info(
@@ -365,14 +385,23 @@ def write_to_notion(
             def _do_append(batch=batch):
                 return client.blocks.children.append(block_id=page_id, children=batch)
 
-            retry_with_backoff_predicate(
-                _do_append,
-                max_retries=max_retries,
-                base_delay=2.0,
-                is_retryable=_notion_is_retryable,
-            )
+            try:
+                retry_with_backoff_predicate(
+                    _do_append,
+                    max_retries=max_retries,
+                    base_delay=2.0,
+                    is_retryable=_notion_is_retryable,
+                )
+            except Exception as exc:
+                # The page already exists at this point. Surfacing its URL in the
+                # error keeps the caller from creating a duplicate on the next
+                # run and lets the user find the partially-written page.
+                raise RuntimeError(
+                    f"Notion page was created but is INCOMPLETE — "
+                    f"batch {i // _NOTION_MAX_BLOCKS_PER_REQUEST + 1}/{total_batches} "
+                    f"failed to append: {exc}. Page: {page_url}"
+                ) from exc
 
-    page_url = response.get("url", "")
     logger.info("Notion page created: %s", page_url)
     return page_url
 

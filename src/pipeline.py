@@ -261,6 +261,13 @@ def process_file(
     if notes_json_path.exists() and not force:
         logger.info("  [SKIP] Notes JSON exists: %s", notes_json_path.name)
         notes = json.loads(notes_json_path.read_text(encoding="utf-8"))
+        cached_lang = notes.get("_language")
+        if lang and cached_lang and lang.lower() != cached_lang.lower():
+            logger.warning(
+                "  --lang %s was requested but the cached notes are '%s'. "
+                "Re-run with --force to regenerate in the requested language.",
+                lang, cached_lang,
+            )
         _step_done("generate_notes")
     else:
         logger.info("  [3/4] Generating meeting notes via LLM ...")
