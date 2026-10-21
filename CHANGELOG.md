@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [1.3.0] — Unreleased
+## [1.3.0] — 2026-10-21
 
 Open-source readiness: licensing, privacy-safe configuration, tests, and evals.
 
@@ -27,6 +27,8 @@ Open-source readiness: licensing, privacy-safe configuration, tests, and evals.
   and Simplified-Chinese compliance; replay mode for API-free re-scoring; a
   secret-gated GitHub workflow that posts results to the job summary.
 - `CONTRIBUTING.md`, issue templates, and this changelog.
+- Manual `Release` workflow that tags a commit and publishes the matching
+  CHANGELOG section as the GitHub Release notes.
 
 ### Changed
 - `config/context.md` is no longer tracked (gitignored); the committed
@@ -37,15 +39,17 @@ Open-source readiness: licensing, privacy-safe configuration, tests, and evals.
 - A missing `config/context.md` now logs a hint pointing to the template.
 
 ### Upgrading from 1.2
-Pulling this release **removes `config/context.md` from your working tree**
-(it becomes untracked). Back it up first, then restore it — it will be
-ignored from now on:
+Repository history was rewritten on 2026-10-21 to remove org-specific data
+from old commits, so existing clones can't simply `git pull`. Back up your
+private files, then re-clone:
 
 ```bash
-cp config/context.md /tmp/context.md.bak
-git pull
-cp /tmp/context.md.bak config/context.md
+cp config/context.md ../context.md.bak     # your glossary
+git clone https://github.com/Linshengyi-William/Local-ASP_Meeting_Notes_Taker.git
+cp ../context.md.bak Local-ASP_Meeting_Notes_Taker/config/context.md
 ```
+
+Don't push from a pre-rewrite clone — it would reintroduce the old history.
 
 Move your Notion database ID to `.env` (`NOTION_DATABASE_ID=...`) or
 `config/config.local.yaml`, and your real `transcription.initial_prompt`
@@ -101,7 +105,7 @@ to `config/config.local.yaml`.
 - OpenAI as default provider with `--provider anthropic` option.
 - Docker and docker-compose support with optional NVIDIA GPU.
 
-[1.3.0]: https://github.com/Linshengyi-William/Local-ASP_Meeting_Notes_Taker/compare/v1.2.0...HEAD
+[1.3.0]: https://github.com/Linshengyi-William/Local-ASP_Meeting_Notes_Taker/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/Linshengyi-William/Local-ASP_Meeting_Notes_Taker/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/Linshengyi-William/Local-ASP_Meeting_Notes_Taker/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Linshengyi-William/Local-ASP_Meeting_Notes_Taker/releases/tag/v1.0.0
