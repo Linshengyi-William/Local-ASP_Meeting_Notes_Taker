@@ -1,6 +1,23 @@
 # Local ASP — Meeting Notes Taker
 
-Low-cost, fully local meeting processing pipeline for Chinese/English mixed meetings.
+[![CI](https://github.com/Linshengyi-William/Local-ASP_Meeting_Notes_Taker/actions/workflows/ci.yml/badge.svg)](https://github.com/Linshengyi-William/Local-ASP_Meeting_Notes_Taker/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+Low-cost, local-first meeting notes pipeline built for **code-switched
+Chinese/English meetings** — the kind where one sentence starts in Mandarin,
+switches to English jargon, and ends with a colleague's name the
+speech-to-text engine has never heard.
+
+- **Audio never leaves your machine.** Transcription runs locally with
+  faster-whisper; only the cleaned text transcript is sent to the LLM.
+- **Gets names and jargon right.** A per-team glossary biases Whisper *and*
+  deterministically corrects misheard names in the finished notes.
+- **Doesn't invent owners.** Action items go to whoever actually took them on,
+  or are marked unassigned — never to a plausible-sounding team that doesn't exist.
+- **English, Simplified Chinese, or bilingual notes**, with output length that
+  scales to long meetings instead of summarising the first ten minutes.
+- **Tested.** Unit tests in CI, plus an [LLM eval suite](evals/README.md) of
+  synthetic code-switched meetings.
 
 ```
 Audio file  →  faster-whisper  →  clean transcript  →  LLM (gpt-5-mini)  →  Notion page
@@ -41,6 +58,7 @@ Edit `.env`:
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...   # optional — only for --provider anthropic
 NOTION_TOKEN=secret_...
+NOTION_DATABASE_ID=...         # see step 3
 ```
 
 ### 3. Set up Notion
@@ -61,11 +79,20 @@ NOTION_TOKEN=secret_...
 3. Copy the database ID from its URL:
    `https://notion.so/workspace/**<DATABASE_ID>**?v=...`
 
-4. Paste it into `config/config.yaml`:
-   ```yaml
-   notion:
-     database_id: "your-database-id-here"
-   ```
+4. Put it in `.env` as `NOTION_DATABASE_ID=...` — or, if you prefer, in
+   `config/config.local.yaml` (see [Private configuration](#private-configuration)).
+   Don't edit it into `config/config.yaml`, which is committed.
+
+### 4. Teach it your team's vocabulary (optional but recommended)
+
+```bash
+cp config/context.example.md config/context.md
+cp config/config.local.example.yaml config/config.local.yaml
+```
+
+Then replace the fictional examples with your colleagues' names and your
+in-house jargon — see [Teaching it about your organisation](#teaching-it-about-your-organisation).
+Both files are gitignored.
 
 ---
 
@@ -100,6 +127,8 @@ python src/pipeline.py --file meetings/inbox/2026-04-07_project-sync.m4a
 | `--force`      | off      | Re-run all steps even if outputs already exist  |
 | `--provider`   | openai   | LLM provider: `openai` or `anthropic`           |
 | `--lang`       | config   | Output language: `en`, `zh`, or `bilingual` (`zh` = Simplified Chinese) |
+| `--watch`      | off      | Watch the inbox and process new recordings as they arrive |
+| `--status`     | off      | Print processing history (from `meetings/processed.json`) and exit |
 | `--config`     | config/config.yaml | Path to config file                  |
 
 ### Example — offline meeting, specific project
@@ -172,8 +201,23 @@ llm:
   output_language: bilingual   # "en" | "zh" (Simplified Chinese) | "bilingual"; override per-run with --lang
 
 notion:
-  database_id: ""         # required — paste your Notion DB ID here
+  database_id: ""         # leave empty — set NOTION_DATABASE_ID or use config.local.yaml
 ```
+
+### Private configuration
+
+`config/config.yaml` is committed and holds generic defaults. Anything specific
+to you or your organisation belongs in files that git ignores:
+
+| File | Holds | Template |
+|---|---|---|
+| `.env` | API keys, `NOTION_DATABASE_ID` | `.env.example` |
+| `config/config.local.yaml` | Any config override — typically your real `transcription.initial_prompt` and `notion.database_id` | `config/config.local.example.yaml` |
+| `config/context.md` | Your team glossary (names, structure, jargon, corrections) | `config/context.example.md` |
+
+At load time `config.local.yaml` is deep-merged over `config.yaml`, then
+environment variables (currently `NOTION_DATABASE_ID`) are applied on top. CI
+fails if any of these private files is ever committed.
 
 ### Note detail
 
@@ -195,23 +239,28 @@ If a meeting still feels under-covered, raise `max_tokens_cap` first.
 ### Teaching it about your organisation
 
 Some things a single recording can never reveal — that your colleague spells it
-**Kris** and not Chris, or that you have one IT team rather than separate dev and
-testing teams. Speech-to-text also reliably mangles names and in-house jargon.
+**Marco** and not Marko, or that you have one Platform team rather than separate
+dev and QA teams. Speech-to-text also reliably mangles names and in-house jargon.
 
-Put those facts in **[`config/context.md`](config/context.md)** once and they
-apply to every future meeting. The file is injected into each run and explicitly
+Put those facts in **`config/context.md`** once (start from
+[`config/context.example.md`](config/context.example.md)) and they apply to
+every future meeting. The file is injected into each run and explicitly
 outranks the transcript, so the model silently corrects rather than repeating the
 error. It covers:
 
 - **People** — correct spellings plus the variants you've seen misheard
 - **Teams and structure** — including what does *not* exist, which is what stops
-  invented owners like "Testing Team" appearing in action items
+  invented owners like "QA team" appearing in action items
 - **Systems and terminology** — your acronyms and internal product names
-- **Known transcription errors** — e.g. `WNS` → WMS, `vinder` → vendor
+- **Known transcription errors** — e.g. `ohms` → OMS, `吉拉` → Jira
+- **Automatic corrections** — a table applied literally to the finished notes,
+  for errors that must never slip through (even inside direct quotes)
 
 For names, also add the term to `transcription.initial_prompt` in
-`config.yaml`. That biases Whisper itself, fixing the error at the source
-instead of correcting it afterwards.
+`config/config.local.yaml`. That biases Whisper itself, fixing the error at the
+source instead of correcting it afterwards.
+
+`config/context.md` is gitignored, so real names never end up in version control.
 
 `config/` is mounted into the container, so **edits here take effect on the next
 run without a rebuild**. (Changes to `src/` still need `docker compose build`.)
@@ -227,17 +276,24 @@ run without a rebuild**. (Changes to `src/` still need `docker compose build`.)
 │   ├── transcripts/
 │   │   ├── raw/               ← whisper JSON output
 │   │   └── clean/             ← cleaned .txt files
-│   └── notes/                 ← LLM-generated notes JSON (local backup)
+│   ├── notes/                 ← LLM-generated notes JSON (local backup)
+│   └── processed.json         ← processing manifest (status, Notion URLs, errors)
 ├── src/
 │   ├── pipeline.py            ← run this for the full flow
 │   ├── transcribe.py
 │   ├── clean.py
 │   ├── generate_notes.py
-│   └── notion_writer.py
+│   ├── notion_writer.py
+│   └── utils.py               ← config loading, validation, retries
 ├── config/
-│   └── config.yaml
+│   ├── config.yaml                    ← committed defaults
+│   ├── config.local.example.yaml      ← template for your private overrides
+│   └── context.example.md             ← template for your team glossary
+├── tests/                     ← pytest unit tests (no models, no network)
+├── evals/                     ← LLM regression eval on synthetic meetings
 ├── .env.example
 ├── requirements.txt
+├── requirements-dev.txt
 └── README.md
 ```
 
@@ -260,9 +316,8 @@ run without a rebuild**. (Changes to `src/` still need `docker compose build`.)
 # 1. Copy and fill in your API keys
 cp .env.example .env
 
-# 2. Fill in your Notion database ID in config/config.yaml
-#    notion:
-#      database_id: "your-id-here"
+# 2. Set NOTION_DATABASE_ID in .env (and optionally create
+#    config/context.md from config/context.example.md)
 
 # 3. Build the image (first time only — takes a few minutes)
 docker compose build
@@ -393,11 +448,33 @@ Without `--rm`, finished containers pile up and waste disk space. Since our pipe
 
 ---
 
-## Roadmap (post-MVP)
+## Development
 
-- [ ] Auto-watch inbox folder (`watchdog`)
-- [ ] Speaker diarisation (`pyannote.audio`)
-- [ ] Bilingual summary output (ZH + EN side-by-side)
-- [ ] Auto-project classification from content
-- [ ] Calendar event linking (Google Calendar API)
-- [ ] Follow-up email / Slack draft generation
+```bash
+pip install -r requirements-dev.txt   # light: no faster-whisper needed
+python -m pytest                       # unit tests — no models, no network
+python evals/run_eval.py --model gpt-5-mini   # LLM eval (needs OPENAI_API_KEY)
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and
+[evals/README.md](evals/README.md) for what the eval measures.
+
+---
+
+## Roadmap
+
+- [x] Inbox watch mode (`--watch`)
+- [x] Bilingual output (EN + 简体中文)
+- [x] Standing org context + deterministic name corrections
+- [x] Unit tests and CI
+- [x] LLM regression eval on synthetic code-switched meetings
+- [ ] Speaker diarisation (`pyannote.audio`) so action items can be attributed by voice
+- [ ] More eval cases (long meetings, Cantonese/Mandarin mixing, heavy accents)
+- [ ] Local LLM option via any OpenAI-compatible endpoint (fully offline mode)
+- [ ] Export targets beyond Notion (Markdown / Obsidian)
+
+---
+
+## License
+
+[MIT](LICENSE)

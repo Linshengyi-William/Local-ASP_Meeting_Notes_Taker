@@ -1,0 +1,17 @@
+{
+  "description": "English-dominant procurement meeting with a Chinese aside, exact figures to preserve, a misheard vendor name, and one task nobody claimed.",
+  "lang": "en",
+  "names": {
+    "Priya": ["Pria", "普丽娅"],
+    "Wang Lei": ["Wong Lay"]
+  },
+  "forbidden_text": ["Acne"],
+  "forbidden_owners": [],
+  "allowed_owners": [],
+  "action_items": [
+    {"id": "negotiate-contract", "owner": "Priya", "keywords": ["contract", "negotiat"]},
+    {"id": "cost-comparison", "owner": "Wang Lei", "keywords": ["cost comparison", "spreadsheet"]},
+    {"id": "notify-acme", "owner": null, "keywords": ["notify", "inform"]}
+  ],
+  "min_action_recall": 1.0
+}

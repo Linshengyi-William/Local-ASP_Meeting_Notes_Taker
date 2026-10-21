@@ -1,6 +1,14 @@
 # Environment
 .env
 
+# Private, org-specific config — templates are committed instead
+config/context.md
+config/config.local.yaml
+
+# Tooling
+.pytest_cache/
+evals/results/
+
 # Python
 __pycache__/
 *.py[cod]

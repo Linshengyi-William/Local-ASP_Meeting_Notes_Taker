@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Byte-compile sources
+        run: python -m compileall -q src evals
+      - name: Run tests
+        run: python -m pytest -q
+
+  privacy-guard:
+    # Fails the build if org-specific files ever get committed again.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check private config files are not tracked
+        run: |
+          for f in config/context.md config/config.local.yaml .env; do
+            if git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
+              echo "::error file=$f::$f must not be committed (it is gitignored for privacy)"
+              exit 1
+            fi
+          done
+      - name: Check committed Notion database ID is empty
+        run: |
+          if grep -Eq '^\s*database_id:\s*"[0-9a-fA-F-]{8,}"' config/config.yaml; then
+            echo "::error file=config/config.yaml::notion.database_id must be empty; use NOTION_DATABASE_ID or config.local.yaml"
+            exit 1
+          fi

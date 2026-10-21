@@ -1,0 +1,19 @@
+# Private overrides — copy to config/config.local.yaml (gitignored):
+#
+#   cp config/config.local.example.yaml config/config.local.yaml
+#
+# This file is deep-merged over config/config.yaml at load time, so only list
+# the keys you want to change. Typical uses: your team's real names in the
+# Whisper prompt, and your Notion database ID.
+
+transcription:
+  initial_prompt: >-
+    Your, Colleagues, Names.
+    Internal system names, acronyms, product names.
+
+notion:
+  database_id: "your-notion-database-id"
+
+# llm:
+#   model: gpt-5
+#   output_language: zh

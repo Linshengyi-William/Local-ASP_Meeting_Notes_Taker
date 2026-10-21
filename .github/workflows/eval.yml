@@ -1,0 +1,62 @@
+name: LLM eval
+
+# Runs the synthetic zh/en regression cases through the real note-generation
+# step. Costs a few short API calls per model, so it only runs when the prompt
+# or eval code changes, or on demand. Without an OPENAI_API_KEY secret (e.g.
+# on PRs from forks) it skips cleanly instead of failing.
+
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: "Space-separated OpenAI models to evaluate"
+        default: "gpt-5-mini"
+        required: true
+      strict:
+        description: "Fail the run if any case fails"
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - "src/generate_notes.py"
+      - "config/config.yaml"
+      - "evals/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Run eval
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "No OPENAI_API_KEY secret available — skipping LLM eval." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          MODELS="${{ inputs.models || 'gpt-5-mini' }}"
+          ARGS=()
+          for m in $MODELS; do ARGS+=(--model "$m"); done
+          if [ "${{ inputs.strict }}" = "true" ]; then ARGS+=(--strict); fi
+          python evals/run_eval.py "${ARGS[@]}" --out evals/results/ci --markdown "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-results
+          path: evals/results/ci
+          if-no-files-found: ignore
