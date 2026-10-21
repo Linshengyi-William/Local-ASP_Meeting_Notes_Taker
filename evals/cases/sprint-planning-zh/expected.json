@@ -1,0 +1,20 @@
+{
+  "description": "Chinese-dominant sprint planning with English jargon, Traditional characters from ASR, misheard names (two of them NOT in the auto-correction table, so the model must fix them from context), and a tempting non-existent 'QA team'.",
+  "lang": "zh",
+  "names": {
+    "Marco": ["Marko", "马可"],
+    "Yuki": ["Yucky", "尤琪"],
+    "Shen Hao": ["Shen How", "沈好"]
+  },
+  "forbidden_text": ["吉拉", "stage in"],
+  "forbidden_owners": ["QA", "测试团队", "testing team"],
+  "allowed_owners": ["Platform team", "Platform 团队", "Platform团队"],
+  "action_items": [
+    {"id": "fix-login-bug", "owner": "Marco", "keywords": ["login", "登录", "SSO", "cookie", "SameSite"]},
+    {"id": "release-notes", "owner": "Yuki", "keywords": ["release notes", "发布说明", "版本说明", "发布记录"]},
+    {"id": "staging-budget", "owner": "Shen Hao", "keywords": ["预算", "财务", "budget", "重建", "staging"]},
+    {"id": "regression-automation", "owner": ["Platform team", "Platform 团队", "Platform团队"], "keywords": ["回归", "自动化", "regression"]},
+    {"id": "api-docs", "owner": null, "keywords": ["API 文档", "API文档", "API doc", "接口文档", "文档"]}
+  ],
+  "min_action_recall": 0.8
+}

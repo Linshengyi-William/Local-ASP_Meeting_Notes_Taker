@@ -231,7 +231,15 @@ def _read_context_file(cfg: dict, base_dir: Optional[Path] = None) -> str:
         path = base_dir / rel
 
     if not path.exists():
-        logger.debug("No project context file at %s — skipping.", path)
+        example = path.with_name(path.stem + ".example" + path.suffix)
+        if example.exists():
+            logger.info(
+                "No project context file at %s — running without one. To teach "
+                "the pipeline your team's names and jargon, copy %s to %s and edit it.",
+                path, example.name, path.name,
+            )
+        else:
+            logger.debug("No project context file at %s — skipping.", path)
         return ""
 
     return path.read_text(encoding="utf-8").strip()
@@ -657,7 +665,6 @@ def generate_notes(
 # ── CLI helper ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import argparse
-    import yaml
     from dotenv import load_dotenv
 
     load_dotenv()
@@ -677,8 +684,9 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    with open(args.config, encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
+    from utils import load_config, resolve_config_path
+
+    cfg = load_config(resolve_config_path(args.config))
 
     out_dir = args.output_dir or cfg["paths"]["notes"]
     notes = generate_notes(args.transcript, cfg, out_dir, provider=args.provider, lang=args.lang)

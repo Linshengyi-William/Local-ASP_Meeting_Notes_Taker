@@ -1,0 +1,15 @@
+[Source: 2026-09-15_sprint-planning.m4a]  [Language: zh]
+
+好，我们开始 sprint planning。这次主要三件事：login bug、release notes，还有 staging 环境的问题。
+
+先说 login bug。Marko 你上周看过了吧？就是 SSO 回调之后 session 丢失的那个。 对，我看了，是 cookie 的 SameSite 设置有问题，我这周五之前可以修好，然后先在 stage in 上验证。
+
+好，那这个 Marko 负责，周五之前。Yucky 你那边 release notes 怎么样？ 我这周三可以把 2.4 版本的 release notes 写完，发到吉拉上让大家 review。
+
+然後是 staging 環境的問題。現在 staging 的數據庫太舊了，測試的時候經常報錯。 Shen How 说可以下周重建。 重建大概需要两天，云服务费用每月多 300 美元左右，我需要先跟财务确认预算，下周一给结论。
+
+有人提到要不要找 QA team 来做回归测试，但我们没有专门的 QA team，测试都是我们自己做。最后决定：回归测试还是我们 Platform team 自己负责，先把自动化脚本写起来。
+
+还有 API 文档也需要更新，2.4 加了三个新接口，不过今天没人认领，先放着。
+
+最后决定这个 sprint 不加新 feature，专心修 bug。还有一个问题没结论：要不要把 release 从周四改到周二，下次再讨论。如果 login bug 周五修不完，2.4 的 release 可能要推迟。

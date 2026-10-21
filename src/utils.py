@@ -3,12 +3,82 @@ utils.py — Shared utility functions for the meeting notes pipeline.
 """
 from __future__ import annotations
 
+import copy
 import logging
+import os
 import sys
 import time
+from pathlib import Path
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+# ── Config loading ────────────────────────────────────────────────────────────
+#
+# config/config.yaml is committed and holds generic defaults. Anything specific
+# to you — your Notion database, your team's names in the Whisper prompt — goes
+# in config/config.local.yaml (gitignored), which is deep-merged on top. A few
+# values can also come from environment variables so they can live in .env.
+
+LOCAL_CONFIG_NAME = "config.local.yaml"
+
+# env var → path inside the config dict
+_ENV_OVERRIDES: dict[str, tuple[str, ...]] = {
+    "NOTION_DATABASE_ID": ("notion", "database_id"),
+}
+
+
+def deep_merge(base: dict, override: dict) -> dict:
+    """Return a new dict: *override* merged into *base*, recursing into dicts."""
+    merged = copy.deepcopy(base)
+    for key, value in (override or {}).items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = deep_merge(merged[key], value)
+        else:
+            merged[key] = copy.deepcopy(value)
+    return merged
+
+
+def resolve_config_path(config_arg: str | Path) -> Path:
+    """Resolve --config relative to the project root, falling back to CWD/absolute."""
+    candidate = PROJECT_ROOT / config_arg
+    return candidate if candidate.exists() else Path(config_arg)
+
+
+def load_config(config_path: str | Path, *, use_local: bool = True, use_env: bool = True) -> dict:
+    """
+    Load the YAML config, then layer on (in order):
+      1. <config dir>/config.local.yaml, if present
+      2. environment-variable overrides (e.g. NOTION_DATABASE_ID)
+    """
+    import yaml
+
+    config_path = Path(config_path)
+    with open(config_path, encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+
+    if use_local:
+        local_path = config_path.parent / LOCAL_CONFIG_NAME
+        if local_path.exists():
+            with open(local_path, encoding="utf-8") as f:
+                local_cfg = yaml.safe_load(f) or {}
+            cfg = deep_merge(cfg, local_cfg)
+            logger.debug("Merged local config overrides from %s", local_path)
+
+    if use_env:
+        for env_name, keys in _ENV_OVERRIDES.items():
+            value = os.environ.get(env_name, "").strip()
+            if not value:
+                continue
+            node = cfg
+            for key in keys[:-1]:
+                node = node.setdefault(key, {})
+            node[keys[-1]] = value
+
+    return cfg
 
 
 # ── Retry helpers ─────────────────────────────────────────────────────────────
@@ -136,8 +206,6 @@ def validate_config(
         skip_notion:       If True, skip Notion-related checks (--no-notion).
         provider_override: CLI --provider value (overrides config for key checks).
     """
-    import os
-
     errors: list[str] = []
 
     # ── LLM provider ──────────────────────────────────────────────────────────
@@ -170,8 +238,9 @@ def validate_config(
         database_id = cfg.get("notion", {}).get("database_id", "")
         if not str(database_id).strip():
             errors.append(
-                "notion.database_id is empty in config.yaml. "
-                "Copy your Notion database ID from its URL and paste it there."
+                "notion.database_id is not set. Copy your Notion database ID from "
+                "its URL and either set NOTION_DATABASE_ID in .env or put it in "
+                "config/config.local.yaml (both are gitignored)."
             )
 
     # ── Paths ─────────────────────────────────────────────────────────────────

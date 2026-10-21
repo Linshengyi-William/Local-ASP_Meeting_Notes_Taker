@@ -137,7 +137,6 @@ def transcribe(
 # ── CLI helper ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import argparse
-    import yaml
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
@@ -147,8 +146,9 @@ if __name__ == "__main__":
     parser.add_argument("--output-dir", default=None, help="Override output directory")
     args = parser.parse_args()
 
-    with open(args.config, encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
+    from utils import load_config, resolve_config_path
+
+    cfg = load_config(resolve_config_path(args.config))
 
     out_dir = args.output_dir or cfg["paths"]["transcripts_raw"]
     result_path = transcribe(args.audio, cfg, out_dir)

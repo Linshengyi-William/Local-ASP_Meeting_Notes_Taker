@@ -1,0 +1,11 @@
+# Lightweight dependencies for tests and evals.
+# faster-whisper is intentionally NOT included — the test suite never loads a
+# speech model, which keeps CI fast. Install requirements.txt to run the
+# full pipeline.
+pyyaml>=6.0
+python-dotenv>=1.0.0
+openai>=1.99.3
+anthropic>=0.40.0
+notion-client>=2.2.0
+pytest>=8.0
+opencc-python-reimplemented>=0.1.7   # precise Traditional-character check in evals

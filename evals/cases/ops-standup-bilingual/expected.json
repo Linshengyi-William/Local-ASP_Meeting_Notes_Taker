@@ -1,0 +1,18 @@
+{
+  "description": "Bilingual standup that repeatedly says 'testing' (an environment, not a team) next to two unowned tasks — the classic trigger for invented owners. One misheard name (Ahmad) is deliberately absent from the auto-correction table.",
+  "lang": "bilingual",
+  "names": {
+    "Lena": ["Lina", "莉娜"],
+    "Ahmed": ["Ahmad", "艾哈迈德"]
+  },
+  "forbidden_text": ["ohms"],
+  "forbidden_owners": ["testing", "test team", "测试", "QA"],
+  "allowed_owners": ["Ops team", "Ops 团队", "Ops团队"],
+  "action_items": [
+    {"id": "queue-alert", "owner": "Lena", "keywords": ["告警", "alert", "queue"]},
+    {"id": "ship-hotfix", "owner": "Ahmed", "keywords": ["hotfix", "1.8.3", "production", "监控", "monitor"]},
+    {"id": "renew-cert", "owner": null, "keywords": ["证书", "certificate", "cert", "TLS"]},
+    {"id": "oncall-rota", "owner": null, "keywords": ["on-call", "排班", "rota", "schedule"]}
+  ],
+  "min_action_recall": 0.75
+}
