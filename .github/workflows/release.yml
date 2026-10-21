@@ -1,0 +1,69 @@
+name: Release
+
+# Creates a tag + GitHub Release whose notes are the matching section of
+# CHANGELOG.md. Run it from the Actions tab: "Release" → "Run workflow".
+#
+#   version: 1.3.0          (without the leading "v")
+#   ref:     main           (or a commit SHA, to back-fill older releases)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. 1.3.0 (must have a section in CHANGELOG.md)"
+        required: true
+      ref:
+        description: "Branch or commit SHA to tag"
+        required: true
+        default: main
+      latest:
+        description: "Mark as the latest release"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve target commit
+        id: target
+        run: |
+          sha=$(git rev-parse --verify "origin/${{ inputs.ref }}^{commit}" 2>/dev/null \
+             || git rev-parse --verify "${{ inputs.ref }}^{commit}")
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Tagging $sha as v${{ inputs.version }}"
+
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          # Always read the CHANGELOG from main, so back-filled releases still
+          # get notes even if the tagged commit predates the changelog.
+          git show origin/main:CHANGELOG.md > /tmp/CHANGELOG.md
+          awk -v ver="${{ inputs.version }}" '
+            $0 ~ "^## \\[" ver "\\]" { grab=1; next }
+            grab && /^## \[/ { exit }
+            grab && /^\[[0-9]+\.[0-9]+\.[0-9]+\]: / { exit }
+            grab { print }
+          ' /tmp/CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::error::No '## [${{ inputs.version }}]' section found in CHANGELOG.md"
+            exit 1
+          fi
+          cat notes.md
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title=$(awk -v ver="${{ inputs.version }}" '$0 ~ "^## \\[" ver "\\]" { sub(/^## /, ""); print; exit }' /tmp/CHANGELOG.md)
+          gh release create "v${{ inputs.version }}" \
+            --target "${{ steps.target.outputs.sha }}" \
+            --title "v${{ inputs.version }}${title#*]}" \
+            --notes-file notes.md \
+            --latest=${{ inputs.latest }}
