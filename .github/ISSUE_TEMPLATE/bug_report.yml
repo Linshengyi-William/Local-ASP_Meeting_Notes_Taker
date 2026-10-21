@@ -1,0 +1,32 @@
+name: Bug report
+description: Something in the pipeline broke or produced wrong notes
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Please don't paste real meeting content, colleagues' names, or internal terms.**
+        Describe the pattern, or reproduce it with a small made-up transcript.
+  - type: dropdown
+    id: step
+    attributes:
+      label: Which step?
+      options: [Transcription, Cleaning, Note generation, Notion upload, Docker / setup, Not sure]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: Command line, relevant config (redacted), and a synthetic transcript snippet if it's a notes-quality issue.
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      placeholder: "OS, Python version, Docker or native, GPU/CPU, provider + model (e.g. openai/gpt-5-mini)"

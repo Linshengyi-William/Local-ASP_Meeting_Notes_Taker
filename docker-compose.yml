@@ -30,8 +30,9 @@ services:
     image: meeting-notes-pipeline:latest
 
     # ── Environment variables ─────────────────────────────────────────────────
-    # Reads your .env file and injects ANTHROPIC_API_KEY and NOTION_TOKEN into
-    # the container as environment variables.  The container never sees the
+    # Reads your .env file and injects OPENAI_API_KEY, NOTION_TOKEN (and the
+    # optional ANTHROPIC_API_KEY / NOTION_DATABASE_ID) into the container as
+    # environment variables.  The container never sees the
     # .env file itself — only the values.  This keeps secrets out of the image.
     env_file:
       - .env
@@ -59,8 +60,9 @@ services:
 
       # 3. config/ — settings and your project glossary
       #    Mounted (not just baked into the image) so that edits to
-      #    config.yaml and context.md take effect on the next run without a
-      #    rebuild. Correcting a misheard name should never require
+      #    config.yaml, config.local.yaml and context.md take effect on the next
+      #    run without a rebuild. The private files are only ever delivered this
+      #    way — .dockerignore keeps them out of the image. Correcting a misheard name should never require
       #    "docker compose build".
       #
       #    NOTE: src/ is still baked into the image, so changes to the Python

@@ -1,0 +1,13 @@
+[Source: 2026-10-06_ops-standup.m4a]  [Language: zh]
+
+早上好，简单 standup 一下。Lina 先说吧。
+
+昨天 testing 环境的 OMS 又挂了，ohms 的 queue 堆了大概 2000 条订单。我重启了 worker，现在恢复了。今天我会加一个 queue 长度的告警，阈值先设 500。
+
+我这边 hotfix 1.8.3 已经在 testing 环境验证过了，下午两点发 production。發佈之後我會盯一個小時的監控。 好的 Ahmad，辛苦。
+
+还有一件事，testing 环境的 TLS 证书下周三过期，需要有人续一下，现在还没人负责。
+
+另外下个月的 on-call 排班表还没出，也没人认领。
+
+风险是如果证书过期，testing 环境所有的 API 调用都会失败，会影响 Ahmad 后面的 hotfix 验证。

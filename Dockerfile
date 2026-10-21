@@ -25,7 +25,7 @@ FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
 
 # ----- System labels (optional metadata) -------------------------------------
 LABEL maintainer="Local-ASP Meeting Notes Taker"
-LABEL description="Whisper + Claude + Notion meeting notes pipeline"
+LABEL description="faster-whisper + LLM + Notion meeting notes pipeline"
 
 # ----- Prevent interactive prompts during apt installs -----------------------
 # Ubuntu's package installer sometimes pauses to ask timezone questions etc.
@@ -78,6 +78,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 #   meetings/       — audio files; mounted as a volume at runtime
 #   config/         — copied so it's baked in, but can be overridden by a
 #                     volume mount if you want to tweak settings without rebuilding
+#                     (your private context.md / config.local.yaml are excluded
+#                     by .dockerignore and arrive through that mount instead)
 COPY src/    ./src/
 COPY config/ ./config/
 

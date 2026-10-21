@@ -410,7 +410,6 @@ def write_to_notion(
 if __name__ == "__main__":
     import argparse
     import json
-    import yaml
     from dotenv import load_dotenv
 
     load_dotenv()
@@ -425,8 +424,9 @@ if __name__ == "__main__":
     parser.add_argument("--project", default=None)
     args = parser.parse_args()
 
-    with open(args.config, encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
+    from utils import load_config, resolve_config_path
+
+    cfg = load_config(resolve_config_path(args.config))
 
     with open(args.notes_json, encoding="utf-8") as f:
         notes = json.load(f)

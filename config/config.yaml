@@ -17,11 +17,13 @@ transcription:
   # ~224 tokens, so keep it a terse list of names, systems, and acronyms —
   # not prose. Add a term here as well as to config/context.md when speech-to-
   # text keeps mangling it, since this fixes the error at the source.
+  #
+  # The value below is a generic example. Put your real list in
+  # config/config.local.yaml (gitignored) so it never lands in git.
   initial_prompt: >-
-    Marco, Yuki, Shen Hao, Priya, Lena.
+    Yuki, Marco, Shen Hao, Priya.
     OMS (Order Management System), staging, hotfix, on-call, Jira,
-    sprint, release, rollback, code review, deploy, system role,
-    project role, permissions, PTO, overtime, HR, admin, QR code, AWS.
+    sprint, release, rollback, PTO.
   beam_size: 5
   vad_filter: true                       # Voice Activity Detection — trims silence
   word_timestamps: false                 # set true if you want per-word timestamps
@@ -41,6 +43,8 @@ llm:
   # system glossary, known transcription errors. Injected into every run and
   # treated as outranking the transcript. Set to "" to disable.
   # This is the place to record corrections so they apply to all future meetings.
+  # Start from the template: cp config/context.example.md config/context.md
+  # (config/context.md is gitignored, so real names stay out of version control.)
   context_file: config/context.md
   # Output token budget. On gpt-5 / o-series this is sent as max_completion_tokens
   # and ALSO covers the model's internal reasoning tokens.
@@ -73,6 +77,9 @@ llm:
 notion:
   # The ID of the database where meeting pages will be created.
   # Find it in the Notion URL: notion.so/<workspace>/<DATABASE_ID>?v=...
+  # Leave this empty here and set it privately instead, either as
+  # NOTION_DATABASE_ID in .env or under notion.database_id in
+  # config/config.local.yaml (both gitignored; env wins).
   database_id: ""
   max_retries: 3                          # retry Notion API calls on 429 / 500 / 503
   # Property names in your database — change if yours differ

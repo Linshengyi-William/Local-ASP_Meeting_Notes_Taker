@@ -30,7 +30,6 @@ import time
 from datetime import date, datetime
 from pathlib import Path
 
-import yaml
 from dotenv import load_dotenv
 
 # Ensure src/ is importable when running from project root
@@ -40,7 +39,7 @@ from transcribe import transcribe
 from clean import clean
 from generate_notes import generate_notes
 from notion_writer import write_to_notion
-from utils import validate_config
+from utils import load_config, resolve_config_path, validate_config
 
 load_dotenv()
 
@@ -556,13 +555,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # Load config relative to project root (one level above src/)
-    config_path = Path(__file__).parent.parent / args.config
-    if not config_path.exists():
-        config_path = Path(args.config)  # allow absolute paths too
-
-    with open(config_path, encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
+    # Load config relative to project root (one level above src/), then layer
+    # config/config.local.yaml and env overrides (NOTION_DATABASE_ID) on top.
+    cfg = load_config(resolve_config_path(args.config))
 
     # Validate config and environment variables before doing any work
     validate_config(cfg, skip_notion=args.no_notion, provider_override=args.provider)

@@ -11,6 +11,15 @@
 # Secrets — NEVER bake these into the image
 .env
 
+# Private org config — supplied at runtime via the ./config volume mount
+# in docker-compose.yml instead of being baked into the image
+config/context.md
+config/config.local.yaml
+
+# Tests and evals aren't needed at runtime
+tests/
+evals/
+
 # Git metadata — not needed inside the container
 .git
 .gitignore
